@@ -17,6 +17,7 @@ pub mod tests {
     use crate::{
         builtins,
         codegen::{CodegenContext, GeneratedModule},
+        fold::{self, AstFolder, DefaultFolder},
         index::{self, Index},
         lexer, parser,
         resolver::{const_evaluator::evaluate_constants, AnnotationMapImpl, AstAnnotations, TypeAnnotator},
@@ -102,6 +103,8 @@ pub mod tests {
         );
         pre_process(&mut unit, id_provider);
         index.import(index::visitor::visit(&unit));
+        let df = DefaultFolder {};
+        let unit = df.fold_unit(unit);
         (unit, index, diagnostics)
     }
 
