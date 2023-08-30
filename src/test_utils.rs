@@ -103,7 +103,7 @@ pub mod tests {
         );
         pre_process(&mut unit, id_provider);
         index.import(index::visitor::visit(&unit));
-        let df = DefaultFolder {};
+        let mut df = DefaultFolder{};
         let unit = df.fold_unit(unit);
         (unit, index, diagnostics)
     }

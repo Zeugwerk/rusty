@@ -5,13 +5,6 @@ use plc_ast::{
         AstControlStatement, CaseStatement, ConditionalBlock, ForLoopStatement, LoopStatement,
     },
 };
-use plc_diagnostics::diagnostics::Diagnostic;
-
-
-// pub struct AstFolder<'i, 'a> {
-//     pub idx: &'i Index,
-//     pub annotations: &'a AstAnnotations,
-// }
 
 macro_rules! fold_all {
     ( $this:ident, $stmt:expr ) => {{
@@ -24,7 +17,12 @@ pub struct DefaultFolder{
 impl AstFolder for DefaultFolder{}
 
 pub trait AstFolder {
-    fn fold_unit(&self, mut unit: CompilationUnit) -> CompilationUnit {
+    fn fold_unit(&mut self, mut unit: CompilationUnit) -> CompilationUnit {
+
+        // TODO: visit all expressions in variable-declarations
+        // for b in unit.units.iter_mut().flat_map(|it| it.variable_blocks.iter_mut()) {
+        // }
+
         for implementation in unit.implementations.iter_mut() {
             let mut new_statements = Vec::with_capacity(implementation.statements.len());
             implementation.statements.drain(..).for_each(|stmt| new_statements.push(self.fold(stmt)));
@@ -34,7 +32,7 @@ pub trait AstFolder {
         unit
     }
 
-    fn fold(&self, stmt: AstStatement) -> AstStatement {
+    fn fold(&mut self, stmt: AstStatement) -> AstStatement {
         match stmt {
             AstStatement::ReferenceExpr { access, base, id, location } => {
                 self.fold_reference_expression(access, base, id, location)
@@ -58,7 +56,7 @@ pub trait AstFolder {
             AstStatement::CallStatement { operator, parameters, location, id } => {
                 self.fold_call_statement(*operator, *parameters, location, id)
             }
-            AstStatement::CaseCondition { condition, id } => self.fold_case_condition(condition, id),
+            AstStatement::CaseCondition { condition, id } => self.fold_case_condition(*condition, id),
             AstStatement::ControlStatement { kind, location, id } => match kind {
                 AstControlStatement::If(if_stmt) => self.fold_if_statement(if_stmt, location, id),
                 AstControlStatement::ForLoop(for_loop) => self.fold_for_loop(for_loop, location, id),
@@ -66,6 +64,7 @@ pub trait AstFolder {
                 AstControlStatement::RepeatLoop(loop_stmt) => self.fold_repeat_loop(loop_stmt, location, id),
                 AstControlStatement::Case(case_stmt) => self.fold_case_statement(case_stmt, location, id),
             },
+            // leaf-statements that dont have child-AST-elements
             // dont change these, just return the original
             AstStatement::Identifier { .. }
             | AstStatement::VlaRangeStatement { .. }
@@ -81,7 +80,7 @@ pub trait AstFolder {
     }
 
     fn fold_reference_expression(
-        &self,
+        &mut self,
         access: ReferenceAccess,
         base: Option<Box<AstStatement>>,
         id: usize,
@@ -97,7 +96,7 @@ pub trait AstFolder {
     }
 
     fn fold_direct_access(
-        &self,
+        &mut self,
         access: plc_ast::ast::DirectAccessType,
         index: AstStatement,
         location: SourceRange,
@@ -107,7 +106,7 @@ pub trait AstFolder {
     }
 
     fn fold_hardware_access(
-        &self,
+        &mut self,
         direction: plc_ast::ast::HardwareAccessType,
         access: plc_ast::ast::DirectAccessType,
         mut address: Vec<AstStatement>,
@@ -118,7 +117,7 @@ pub trait AstFolder {
     }
 
     fn fold_binary_expression(
-        &self,
+        &mut self,
         operator: plc_ast::ast::Operator,
         left: AstStatement,
         right: AstStatement,
@@ -133,7 +132,7 @@ pub trait AstFolder {
     }
 
     fn fold_unary_expression(
-        &self,
+        &mut self,
         operator: plc_ast::ast::Operator,
         value: AstStatement,
         location: SourceRange,
@@ -142,12 +141,12 @@ pub trait AstFolder {
         AstStatement::UnaryExpression { operator, value: Box::new(self.fold(value)), location, id }
     }
 
-    fn fold_assignment(&self, left: AstStatement, right: AstStatement, id: usize) -> AstStatement {
+    fn fold_assignment(&mut self, left: AstStatement, right: AstStatement, id: usize) -> AstStatement {
         AstStatement::Assignment { left: Box::new(self.fold(left)), right: Box::new(self.fold(right)), id }
     }
 
     fn fold_output_assignment(
-        &self,
+        &mut self,
         left: AstStatement,
         right: AstStatement,
         id: usize,
@@ -160,7 +159,7 @@ pub trait AstFolder {
     }
 
     fn fold_call_statement(
-        &self,
+        &mut self,
         operator: AstStatement,
         parameters: Option<AstStatement>,
         location: SourceRange,
@@ -174,12 +173,12 @@ pub trait AstFolder {
         }
     }
 
-    fn fold_case_condition(&self, condition: Box<AstStatement>, id: usize) -> AstStatement {
-        AstStatement::CaseCondition { condition: Box::new(self.fold(*condition)), id }
+    fn fold_case_condition(&mut self, condition: AstStatement, id: usize) -> AstStatement {
+        AstStatement::CaseCondition { condition: Box::new(self.fold(condition)), id }
     }
 
     fn fold_if_statement(
-        &self,
+        &mut self,
         mut if_stmt: plc_ast::control_statements::IfStatement,
         location: SourceRange,
         id: usize,
@@ -202,7 +201,7 @@ pub trait AstFolder {
         )
     }
 
-    fn fold_for_loop(&self, for_loop: ForLoopStatement, location: SourceRange, id: usize) -> AstStatement {
+    fn fold_for_loop(&mut self, for_loop: ForLoopStatement, location: SourceRange, id: usize) -> AstStatement {
         let ForLoopStatement { counter, start, end, by_step, mut body } = for_loop;
         AstFactory::create_for_loop(
             self.fold(*counter),
@@ -215,18 +214,18 @@ pub trait AstFolder {
         )
     }
 
-    fn fold_while_loop(&self, loop_stmt: LoopStatement, location: SourceRange, id: usize) -> AstStatement {
+    fn fold_while_loop(&mut self, loop_stmt: LoopStatement, location: SourceRange, id: usize) -> AstStatement {
         let LoopStatement { mut body, condition } = loop_stmt;
         AstFactory::create_while_statement(self.fold(*condition), fold_all!(self, body), location, id)
     }
 
-    fn fold_repeat_loop(&self, loop_stmt: LoopStatement, location: SourceRange, id: usize) -> AstStatement {
+    fn fold_repeat_loop(&mut self, loop_stmt: LoopStatement, location: SourceRange, id: usize) -> AstStatement {
         let LoopStatement { mut body, condition } = loop_stmt;
         AstFactory::create_repeat_statement(self.fold(*condition), fold_all!(self, body), location, id)
     }
 
     fn fold_case_statement(
-        &self,
+        &mut self,
         case_stmt: CaseStatement,
         location: SourceRange,
         id: usize,
