@@ -8,16 +8,22 @@
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    ops::Deref,
 };
 
 use indexmap::{IndexMap, IndexSet};
+use itertools::Itertools;
 use plc_ast::{
     ast::{
         self, flatten_expression_list, Assignment, AstFactory, AstId, AstNode, AstStatement,
-        BinaryExpression, CastStatement, CompilationUnit, DataType, DataTypeDeclaration, DirectAccessType,
-        Operator, Pou, ReferenceAccess, ReferenceExpr, TypeNature, UserTypeDeclaration, Variable,
+        BinaryExpression, CallStatement, CastStatement, CompilationUnit, DataType, DataTypeDeclaration,
+        DefaultValue, DirectAccess, DirectAccessType, EmptyStatement, MultipliedStatement, Operator, Pou,
+        RangeStatement, ReferenceAccess, ReferenceExpr, TypeNature, UnaryExpression, UserTypeDeclaration,
+        Variable,
     },
-    control_statements::{AstControlStatement, ReturnStatement},
+    control_statements::{
+        AstControlStatement, CaseStatement, ForLoopStatement, IfStatement, LoopStatement, ReturnStatement,
+    },
     literals::{Array, AstLiteral, StringValue},
     provider::IdProvider,
 };
@@ -2081,5 +2087,109 @@ mod resolver_tests {
         assert_eq!(get_real_type_name_for("-1.8976931348623157E+308"), "LREAL");
         assert_eq!(get_real_type_name_for(" 1.7976931348623157E+309"), "LREAL");
         assert_eq!(get_real_type_name_for("-1.7976931348623157E+309"), "LREAL");
+    }
+}
+
+pub enum VisitorEvent<'s, StmtType> {
+    Enter((&'s AstNode, StmtType)),
+    Exit((&'s AstNode, StmtType)),
+}
+
+trait AstVisitor {
+    fn visit_empty_statement(&mut self, event: VisitorEvent<&EmptyStatement>) {}
+    fn visit_default_value(&mut self, event: VisitorEvent<&DefaultValue>) {}
+    fn visit_literal(&mut self, event: VisitorEvent<&AstLiteral>) {}
+    fn visit_cast_statement(&mut self, event: VisitorEvent<&CastStatement>) {}
+    fn visit_multiplied_statement(&mut self, event: VisitorEvent<&MultipliedStatement>) {}
+    fn visit_reference(&mut self, event: VisitorEvent<&ReferenceExpr>) {}
+    fn visit_identifier(&mut self, event: VisitorEvent<&str>) {}
+    fn visit_direct_access(&mut self, event: VisitorEvent<&DirectAccess>) {}
+    fn visit_call_statement(&mut self, event: VisitorEvent<&CallStatement>) {}
+    fn visit_assignment(&mut self, event: VisitorEvent<&Assignment>) {}
+    fn visit_output_assignment(&mut self, event: VisitorEvent<&Assignment>) {}
+    fn visit_binary_expression(&mut self, event: VisitorEvent<&BinaryExpression>) {}
+    fn visit_unary_expression(&mut self, event: VisitorEvent<&UnaryExpression>) {}
+    fn visit_expression_list(&mut self, event: VisitorEvent<&[AstNode]>) {}
+    fn visit_range_statement(&mut self, event: VisitorEvent<&RangeStatement>) {}
+    fn visit_vla_range_statement(&mut self, event: VisitorEvent<()>) {}
+    fn visit_exit_statement(&mut self, event: VisitorEvent<()>) {}
+    fn visit_continue_statement(&mut self, event: VisitorEvent<()>) {}
+    fn visit_return_statement(&mut self, event: VisitorEvent<&ReturnStatement>) {}
+    fn visit_if_statement(&mut self, event: VisitorEvent<&IfStatement>) {}
+    fn visit_for_loop(&mut self, event: VisitorEvent<&ForLoopStatement>) {}
+    fn visit_while_loop(&mut self, event: VisitorEvent<&LoopStatement>) {}
+    fn visit_repeat_loop(&mut self, event: VisitorEvent<&LoopStatement>) {}
+    fn visit_case(&mut self, event: VisitorEvent<&CaseStatement>) {}
+}
+
+/// helper macro that calls visit_statement for all given statements
+/// use like `visit_all_statements!(self, ctx, stmt1, stmt2, stmt3, ...)`
+macro_rules! visit_and_drive {
+    ($self:expr, $visitor:expr, $i:ident, $children:expr, $node:expr, $param:expr ) => {{
+        $visitor.$i(VisitorEvent::Enter(($node, $param)));
+        for child in $children {
+            $self.drive(child, $visitor);
+        }
+        $visitor.$i(VisitorEvent::Exit(($node, $param)));
+    }};
+}
+
+struct AstDriver {}
+
+impl AstDriver {
+    fn new() -> Self {
+        Self {}
+    }
+
+    fn drive(&self, nde: &AstNode, visitor: &mut impl AstVisitor) {
+        match nde.get_stmt() {
+            AstStatement::EmptyStatement(stmt) => {
+                visit_and_drive!(self, visitor, visit_empty_statement, [], nde, stmt)
+            }
+            AstStatement::DefaultValue(stmt) => {
+                visit_and_drive!(self, visitor, visit_default_value, [], nde, stmt)
+            }
+            AstStatement::Literal(stmt) => {
+                visit_and_drive!(self, visitor, visit_literal, [], nde, stmt)
+            }
+            AstStatement::CastStatement(stmt) => {
+                visit_and_drive!(self, visitor, visit_cast_statement, [&stmt.target], nde, stmt)
+            }
+            AstStatement::MultipliedStatement(stmt) => {
+                visit_and_drive!(self, visitor, visit_multiplied_statement, [&stmt.element], nde, stmt)
+            }
+
+            AstStatement::ReferenceExpr(stmt) => match &stmt.access {
+                ReferenceAccess::Member(c) | ReferenceAccess::Index(c) | ReferenceAccess::Cast(c) => {
+                    visit_and_drive!(
+                        self,
+                        visitor,
+                        visit_reference,
+                        stmt.base.as_deref().into_iter().chain(std::iter::once(c.as_ref())),
+                        nde,
+                        stmt
+                    )
+                }
+                _ => {
+                    visit_and_drive!(self, visitor, visit_reference, stmt.base.as_deref().iter(), nde, stmt)
+                }
+            },
+            AstStatement::Identifier(_) => todo!(),
+            AstStatement::DirectAccess(_) => todo!(),
+            AstStatement::HardwareAccess(_) => todo!(),
+            AstStatement::BinaryExpression(_) => todo!(),
+            AstStatement::UnaryExpression(_) => todo!(),
+            AstStatement::ExpressionList(_) => todo!(),
+            AstStatement::RangeStatement(_) => todo!(),
+            AstStatement::VlaRangeStatement => todo!(),
+            AstStatement::Assignment(_) => todo!(),
+            AstStatement::OutputAssignment(_) => todo!(),
+            AstStatement::CallStatement(_) => todo!(),
+            AstStatement::ControlStatement(_) => todo!(),
+            AstStatement::CaseCondition(_) => todo!(),
+            AstStatement::ExitStatement(_) => todo!(),
+            AstStatement::ContinueStatement(_) => todo!(),
+            AstStatement::ReturnStatement(_) => todo!(),
+        }
     }
 }
