@@ -61,12 +61,19 @@ fn parse(
     linkage: LinkageType,
     id_provider: IdProvider,
 ) -> (CompilationUnit, Vec<Diagnostic>) {
-    // Transform the xml file to a data model.
+    // transform the xml file to a data model.
     // XXX: consecutive call-statements are nested in a single ast-statement. this will be broken up with temporary variables in the future
     let project = match visit(&source.source) {
         Ok(project) => project,
-        Err(why) => todo!("cfc errors need to be transformed into diagnostics; {why:?}"),
+        Err(xml_err) => {
+            let unit = CompilationUnit::new(source.get_location_str());
+            let diagnostics = vec![Diagnostic::from(xml_err)];
+            return (unit, diagnostics);
+        }
     };
+    // let Ok(project) = visit(&source.source) else {
+    //     todo!("cfc errors need to be transformed into diagnostics")
+    // };
 
     // Create a new parse session
     let source_location_factory = SourceLocationFactory::for_source(source);
@@ -172,5 +179,152 @@ impl From<PouType> for AstPouType {
             PouType::Function => AstPouType::Function,
             PouType::FunctionBlock => AstPouType::FunctionBlock,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::PathBuf;
+
+    use super::parse;
+    use crate::serializer::{with_header, XBody, XExpression, XFbd, XInVariable, XOutVariable, XPou};
+    use ast::{
+        ast::{CompilationUnit, LinkageType},
+        provider::IdProvider,
+    };
+    use insta::assert_debug_snapshot;
+    use plc_diagnostics::diagnostics::Diagnostic;
+    use plc_source::SourceCode;
+
+    fn parse_test(source: impl Into<String>) -> (CompilationUnit, Vec<Diagnostic>) {
+        let mut path = PathBuf::new();
+        path.push("test");
+        let source = SourceCode::new(source, path);
+        parse(&source, LinkageType::Internal, IdProvider::default())
+    }
+
+    #[test]
+    #[ignore = "consumable reader refactor needed. currently hits an infinite loop"]
+    fn unclosed_xml_element_does_not_cause_infinite_loop() {
+        // GIVEN valid xml but with an unclosed element
+        let content = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <pou xmlns="http://www.plcopen.org/xml/tc6_0201" name="pass_through" pouType="functionBlock">"#;
+
+        // WHEN trying to parse
+        let (_, diagnostics) = parse_test(content);
+        // THEN the parser does not run in an infinite loop but reports unexpected EOF
+        assert_debug_snapshot!(diagnostics);
+    }
+
+    #[test]
+    fn missing_attribute_is_reported() {
+        // GIVEN xml content with an element that is missing required attributes
+        let content = with_header(
+            &XPou::init(
+                "myFunction",
+                "function",
+                "FUNCTION myfunction : DINT
+                VAR_INPUT
+                    a : DINT;
+                END_VAR",
+            )
+            .with_body(
+                XBody::new().with_fbd(
+                    XFbd::new()
+                        .with_in_variable(
+                            XInVariable::new().with_expression(XExpression::new().with_data("a")),
+                        )
+                        .with_out_variable(XOutVariable::new()),
+                ),
+            )
+            .serialize(),
+        );
+
+        // WHEN trying to parse
+        let (_, diagnostics) = parse_test(content);
+        // THEN missing attribute is reported
+        assert_debug_snapshot!(diagnostics);
+    }
+
+    #[test]
+    fn unexpected_element_is_reported() {
+        // GIVEN xml content with an element that is missing required attributes
+        let content = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <pou xmlns="http://www.plcopen.org/xml/tc6_0201" name="conditional_return" pouType="UNEXPECTED_ELEMENT">
+        <interface>
+            <localVars/>
+            <addData>
+                <data name="www.bachmann.at/plc/plcopenxml" handleUnknown="implementation">
+                    <textDeclaration>
+                        <content>
+                            FUNCTION_BLOCK conditional_return
+                            VAR_INPUT
+                                val : DINT;
+                            END_VAR
+                        </content>
+                    </textDeclaration>
+                </data>
+            </addData>
+        </interface>
+        </pou>
+            "#;
+
+        // WHEN trying to parse
+        let (_, diagnostics) = parse_test(content);
+        // THEN missing attribute is reported
+        assert_debug_snapshot!(diagnostics);
+    }
+
+    #[test]
+    fn unclosed_line_reports_read_event() {
+        // GIVEN xml content that's missing closing angle brackets
+        let content = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <pou xmlns="http://www.plcopen.org/xml/tc6_0201" name="pass_through" pouType="functionBlock""#;
+
+        // WHEN trying to parse
+        let (_, diagnostics) = parse_test(content);
+        // THEN a read-event with unexpected EOF is reported
+        assert_debug_snapshot!(diagnostics);
+    }
+
+    #[test]
+    fn int_parse_error_is_reported() {
+        let content = with_header(
+            &XPou::init(
+                "myFunction",
+                "function",
+                "
+                FUNCTION myFunction : DINT
+                VAR_INPUT
+                a : DINT;
+                END_VAR
+            ",
+            )
+            .with_body(
+                XBody::new().with_fbd(XFbd::new().with_in_variable(XInVariable::init("not an int", false))),
+            )
+            .serialize(),
+        );
+
+        // WHEN trying to parse
+        let (_, diagnostics) = parse_test(content);
+        // THEN an encoding-error is reported
+        assert_debug_snapshot!(diagnostics);
+    }
+
+    #[test]
+    #[ignore = "infinite loop"]
+    fn different_invalid_utf8_reports_encoding_error() {
+        // GIVEN xml content with utf8 decoding error
+        let invalid_utf8 = String::from_utf16_lossy(&[0xD800_u16]); // unpaired lead surrogate
+        let content = format!(
+            r#"<?xm{invalid_utf8} version="1.0" encoding="UTF-8"?>
+        <pou xmlns="http://www.plcopen.org/xml/tc6_0201" name="test" pouType="functionBlock">"#
+        );
+
+        // WHEN trying to parse
+        let (_, diagnostics) = parse_test(content);
+        // THEN an encoding-error is reported
+        assert_debug_snapshot!(diagnostics);
     }
 }
