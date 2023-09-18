@@ -6,7 +6,7 @@
 //! records all resulting types associated with the statement's id.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     hash::Hash,
     ops::Deref,
 };
@@ -17,9 +17,9 @@ use plc_ast::{
     ast::{
         self, flatten_expression_list, Assignment, AstFactory, AstId, AstNode, AstStatement,
         BinaryExpression, CallStatement, CastStatement, CompilationUnit, DataType, DataTypeDeclaration,
-        DefaultValue, DirectAccess, DirectAccessType, EmptyStatement, MultipliedStatement, Operator, Pou,
-        RangeStatement, ReferenceAccess, ReferenceExpr, TypeNature, UnaryExpression, UserTypeDeclaration,
-        Variable,
+        DefaultValue, DirectAccess, DirectAccessType, EmptyStatement, HardwareAccess, MultipliedStatement,
+        Operator, Pou, RangeStatement, ReferenceAccess, ReferenceExpr, TypeNature, UnaryExpression,
+        UserTypeDeclaration, Variable,
     },
     control_statements::{
         AstControlStatement, CaseStatement, ForLoopStatement, IfStatement, LoopStatement, ReturnStatement,
@@ -1913,6 +1913,22 @@ fn get_real_type_name_for(value: &str) -> &'static str {
     REAL_TYPE
 }
 
+pub struct Scope<'s>{
+    strategy: Vec<ResolvingScope>,
+    explicit_qualifier: Option<&'s str>,
+    inherited_qualifier: Option<&'s str>
+}
+
+impl<'s> Scope<'s>{
+    pub fn new(strategy: Vec<ResolvingScope>, explicit_qualifier: Option<&'s str>, inherited_qualifier: Option<&'s str>) -> Self {
+        Scope {
+            strategy,
+            explicit_qualifier,
+            inherited_qualifier
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum ResolvingScope {
     Variable,      //try to resolve a variable
@@ -2096,34 +2112,35 @@ pub enum VisitorEvent<'s, StmtType> {
 }
 
 trait AstVisitor {
-    fn visit_empty_statement(&mut self, event: VisitorEvent<&EmptyStatement>) {}
-    fn visit_default_value(&mut self, event: VisitorEvent<&DefaultValue>) {}
-    fn visit_literal(&mut self, event: VisitorEvent<&AstLiteral>) {}
-    fn visit_cast_statement(&mut self, event: VisitorEvent<&CastStatement>) {}
-    fn visit_multiplied_statement(&mut self, event: VisitorEvent<&MultipliedStatement>) {}
-    fn visit_reference(&mut self, event: VisitorEvent<&ReferenceExpr>) {}
-    fn visit_identifier(&mut self, event: VisitorEvent<&str>) {}
-    fn visit_direct_access(&mut self, event: VisitorEvent<&DirectAccess>) {}
-    fn visit_call_statement(&mut self, event: VisitorEvent<&CallStatement>) {}
-    fn visit_assignment(&mut self, event: VisitorEvent<&Assignment>) {}
-    fn visit_output_assignment(&mut self, event: VisitorEvent<&Assignment>) {}
-    fn visit_binary_expression(&mut self, event: VisitorEvent<&BinaryExpression>) {}
-    fn visit_unary_expression(&mut self, event: VisitorEvent<&UnaryExpression>) {}
-    fn visit_expression_list(&mut self, event: VisitorEvent<&[AstNode]>) {}
-    fn visit_range_statement(&mut self, event: VisitorEvent<&RangeStatement>) {}
-    fn visit_vla_range_statement(&mut self, event: VisitorEvent<()>) {}
-    fn visit_exit_statement(&mut self, event: VisitorEvent<()>) {}
-    fn visit_continue_statement(&mut self, event: VisitorEvent<()>) {}
-    fn visit_return_statement(&mut self, event: VisitorEvent<&ReturnStatement>) {}
-    fn visit_if_statement(&mut self, event: VisitorEvent<&IfStatement>) {}
-    fn visit_for_loop(&mut self, event: VisitorEvent<&ForLoopStatement>) {}
-    fn visit_while_loop(&mut self, event: VisitorEvent<&LoopStatement>) {}
-    fn visit_repeat_loop(&mut self, event: VisitorEvent<&LoopStatement>) {}
-    fn visit_case(&mut self, event: VisitorEvent<&CaseStatement>) {}
+    // enter methods for all ast-nodes
+    fn visit_empty_statement(&mut self, _event: VisitorEvent<&EmptyStatement>) {}
+    fn visit_default_value(&mut self, _event: VisitorEvent<&DefaultValue>) {}
+    fn visit_literal(&mut self, _event: VisitorEvent<&AstLiteral>) {}
+    fn visit_cast_statement(&mut self, _event: VisitorEvent<&CastStatement>) {}
+    fn visit_multiplied_statement(&mut self, _event: VisitorEvent<&MultipliedStatement>) {}
+    fn visit_reference(&mut self, _event: VisitorEvent<&ReferenceExpr>) {}
+    fn visit_identifier(&mut self, event: VisitorEvent<&str>) {} 
+    fn visit_direct_access(&mut self, _event: VisitorEvent<&DirectAccess>) {}
+    fn visit_hardware_access(&mut self, _event: VisitorEvent<&HardwareAccess>) {}
+    fn visit_call_statement(&mut self, _event: VisitorEvent<&CallStatement>) {}
+    fn visit_assignment(&mut self, _event: VisitorEvent<&Assignment>) {}
+    fn visit_output_assignment(&mut self, _event: VisitorEvent<&Assignment>) {}
+    fn visit_binary_expression(&mut self, _event: VisitorEvent<&BinaryExpression>) {}
+    fn visit_unary_expression(&mut self, _event: VisitorEvent<&UnaryExpression>) {}
+    fn visit_range_statement(&mut self, _event: VisitorEvent<&RangeStatement>) {}
+    fn visit_vla_range_statement(&mut self, _event: VisitorEvent<()>) {}
+    fn visit_exit_statement(&mut self, _event: VisitorEvent<()>) {}
+    fn visit_continue_statement(&mut self, _event: VisitorEvent<()>) {}
+    fn visit_return_statement(&mut self, _event: VisitorEvent<&ReturnStatement>) {}
+    fn visit_if_statement(&mut self, _event: VisitorEvent<&IfStatement>) {}
+    fn visit_for_loop(&mut self, _event: VisitorEvent<&ForLoopStatement>) {}
+    fn visit_while_loop(&mut self, _event: VisitorEvent<&LoopStatement>) {}
+    fn visit_repeat_loop(&mut self, _event: VisitorEvent<&LoopStatement>) {}
+    fn visit_case(&mut self, _event: VisitorEvent<&CaseStatement>) {}
+
+
 }
 
-/// helper macro that calls visit_statement for all given statements
-/// use like `visit_all_statements!(self, ctx, stmt1, stmt2, stmt3, ...)`
 macro_rules! visit_and_drive {
     ($self:expr, $visitor:expr, $i:ident, $children:expr, $node:expr, $param:expr ) => {{
         $visitor.$i(VisitorEvent::Enter(($node, $param)));
@@ -2134,23 +2151,21 @@ macro_rules! visit_and_drive {
     }};
 }
 
-struct AstDriver {}
-
-impl AstDriver {
-    fn new() -> Self {
-        Self {}
+trait AstDriver<V> where V: AstVisitor {
+    fn drive(&self, nde: &AstNode, visitor: &mut V) {
+        self.default_drive(nde, visitor);
     }
 
-    fn drive(&self, nde: &AstNode, visitor: &mut impl AstVisitor) {
+    fn default_drive(&self, nde: &AstNode, visitor: &mut V) {
         match nde.get_stmt() {
             AstStatement::EmptyStatement(stmt) => {
-                visit_and_drive!(self, visitor, visit_empty_statement, [], nde, stmt)
+                visit_and_drive!(self, visitor, visit_empty_statement, std::iter::empty(), nde, stmt)
             }
             AstStatement::DefaultValue(stmt) => {
-                visit_and_drive!(self, visitor, visit_default_value, [], nde, stmt)
+                visit_and_drive!(self, visitor, visit_default_value, std::iter::empty(), nde, stmt)
             }
             AstStatement::Literal(stmt) => {
-                visit_and_drive!(self, visitor, visit_literal, [], nde, stmt)
+                visit_and_drive!(self, visitor, visit_literal, std::iter::empty(), nde, stmt)
             }
             AstStatement::CastStatement(stmt) => {
                 visit_and_drive!(self, visitor, visit_cast_statement, [&stmt.target], nde, stmt)
@@ -2174,22 +2189,230 @@ impl AstDriver {
                     visit_and_drive!(self, visitor, visit_reference, stmt.base.as_deref().iter(), nde, stmt)
                 }
             },
-            AstStatement::Identifier(_) => todo!(),
-            AstStatement::DirectAccess(_) => todo!(),
-            AstStatement::HardwareAccess(_) => todo!(),
-            AstStatement::BinaryExpression(_) => todo!(),
-            AstStatement::UnaryExpression(_) => todo!(),
-            AstStatement::ExpressionList(_) => todo!(),
-            AstStatement::RangeStatement(_) => todo!(),
-            AstStatement::VlaRangeStatement => todo!(),
-            AstStatement::Assignment(_) => todo!(),
-            AstStatement::OutputAssignment(_) => todo!(),
-            AstStatement::CallStatement(_) => todo!(),
-            AstStatement::ControlStatement(_) => todo!(),
-            AstStatement::CaseCondition(_) => todo!(),
-            AstStatement::ExitStatement(_) => todo!(),
-            AstStatement::ContinueStatement(_) => todo!(),
-            AstStatement::ReturnStatement(_) => todo!(),
+            AstStatement::Identifier(stmt) => {
+                visit_and_drive!(self, visitor, identifier, std::iter::empty(), nde, stmt)
+                visit_and_drive!(self, visitor, visit_identifier, std::iter::empty(), nde, stmt)
+            }
+            AstStatement::DirectAccess(stmt) => {
+                visit_and_drive!(self, visitor, visit_direct_access, [&stmt.index], nde, stmt)
+            }
+            AstStatement::HardwareAccess(stmt) => {
+                visit_and_drive!(self, visitor, visit_hardware_access, stmt.address.iter(), nde, stmt)
+            }
+            AstStatement::BinaryExpression(stmt) => {
+                visit_and_drive!(self, visitor, visit_binary_expression, [&stmt.left, &stmt.right], nde, stmt)
+            }
+            AstStatement::UnaryExpression(stmt) => {
+                visit_and_drive!(self, visitor, visit_unary_expression, [&stmt.value], nde, stmt)
+            }
+            AstStatement::ExpressionList(el) => {
+                for child in el {
+                    self.drive(child, visitor);
+                }
+            }
+            AstStatement::RangeStatement(stmt) => {
+                visit_and_drive!(self, visitor, visit_range_statement, [&stmt.start, &stmt.end], nde, stmt)
+            }
+            AstStatement::VlaRangeStatement => {
+                visit_and_drive!(self, visitor, visit_vla_range_statement, std::iter::empty(), nde, ())
+            }
+            AstStatement::Assignment(stmt) => {
+                visit_and_drive!(self, visitor, visit_assignment, [&stmt.left, &stmt.right], nde, stmt)
+            }
+            AstStatement::OutputAssignment(stmt) => {
+                visit_and_drive!(self, visitor, visit_output_assignment, [&stmt.left, &stmt.right], nde, stmt)
+            }
+            AstStatement::CallStatement(stmt) => {
+                visit_and_drive!(
+                    self,
+                    visitor,
+                    visit_call_statement,
+                    std::iter::once(&stmt.operator).chain(stmt.parameters.iter()),
+                    nde,
+                    stmt
+                )
+            }
+            AstStatement::ControlStatement(AstControlStatement::If(stmt)) => {
+                visit_and_drive!(self, visitor, visit_if_statement, [], nde, stmt)
+            }
+            AstStatement::ControlStatement(AstControlStatement::ForLoop(stmt)) => {
+                let children = std::iter::once(stmt.start.as_ref())
+                    .chain(std::iter::once(stmt.end.as_ref()))
+                    .chain(stmt.by_step.as_deref().into_iter())
+                    .chain(stmt.body.iter());
+                visit_and_drive!(self, visitor, visit_for_loop, children, nde, stmt)
+            }
+            AstStatement::ControlStatement(AstControlStatement::WhileLoop(stmt)) => {
+                visit_and_drive!(
+                    self,
+                    visitor,
+                    visit_while_loop,
+                    std::iter::once(stmt.condition.as_ref()).chain(stmt.body.iter()),
+                    nde,
+                    stmt
+                )
+            }
+            AstStatement::ControlStatement(AstControlStatement::RepeatLoop(stmt)) => {
+                visit_and_drive!(
+                    self,
+                    visitor,
+                    visit_repeat_loop,
+                    std::iter::once(stmt.condition.as_ref()).chain(stmt.body.iter()),
+                    nde,
+                    stmt
+                )
+            }
+            AstStatement::ControlStatement(AstControlStatement::Case(stmt)) => {
+                let case_blocks = stmt
+                    .case_blocks
+                    .iter()
+                    .flat_map(|it| std::iter::once(it.condition.as_ref()).chain(it.body.iter()));
+                let children =
+                    std::iter::once(stmt.selector.as_ref()).chain(case_blocks).chain(stmt.else_block.iter());
+                visit_and_drive!(self, visitor, visit_case, children, nde, stmt)
+            }
+            AstStatement::CaseCondition(stmt) => {
+                self.drive(stmt, visitor);
+            }
+            AstStatement::ExitStatement(_) => {
+                visit_and_drive!(self, visitor, visit_exit_statement, std::iter::empty(), nde, ())
+            }
+            AstStatement::ContinueStatement(_) => {
+                visit_and_drive!(self, visitor, visit_continue_statement, std::iter::empty(), nde, ())
+            }
+            AstStatement::ReturnStatement(stmt) => {
+                visit_and_drive!(
+                    self,
+                    visitor,
+                    visit_return_statement,
+                    stmt.condition.as_deref().into_iter(),
+                    nde,
+                    stmt
+                )
+            }
         }
+    }
+}
+
+struct ResolvingDriver {}
+impl AstDriver<ResolvingVisitor<'_, '_>> for ResolvingDriver {
+    fn drive(&self, nde: &AstNode, visitor: &mut ResolvingVisitor) {
+        match nde.get_stmt() {
+            AstStatement::CallStatement(stmt) => {
+                self.drive_call_statement(stmt, visitor);
+            },
+            AstStatement::Assignment(stmt)| AstStatement::OutputAssignment(stmt) => {
+                self.drive_assignment(stmt, visitor);
+            }
+            AstStatement::ReferenceExpr(stmt) => {
+                self.drive_reference_expression(stmt, visitor);
+            }
+            _ => {
+                self.default_drive(nde, visitor);
+            }
+        }
+    }
+}
+
+impl ResolvingDriver {
+    fn drive_call_statement(&self, stmt: &CallStatement, visitor: &mut ResolvingVisitor) {
+        // visit the operator first
+        self.default_drive(&stmt.operator, visitor);
+        // then visit the parameters
+        for param in stmt.parameters.iter() {
+            visitor.push(todo!("left and right scope"));
+            self.default_drive(param, visitor);
+            visitor.pop();
+        }
+    }
+
+    fn drive_assignment(&self, stmt: &Assignment, visitor: &mut ResolvingVisitor) {
+        // visit the left side first
+        visitor.push(todo!("left, left"));
+        self.default_drive(&stmt.left, visitor);
+
+        // then visit the right side
+        // visitor.push();
+        self.default_drive(&stmt.right, visitor);
+        visitor.pop();
+    }
+
+
+
+
+    fn drive_reference_expression(&self, stmt: &ReferenceExpr, visitor: &mut ResolvingVisitor<'_, '_>) -> _ {
+        
+        // let scope = if let Some(base) = base {
+        //     self.drive(stmt.base);
+        //     visitor.annotations.get
+        // }else{
+        //     //existing scope
+        // }
+            
+    }
+
+
+
+}
+
+pub 
+
+
+struct ResolvingVisitor<'i, 's> {
+    annotations: AnnotationMapImpl,
+    index: &'i Index,
+    value_scope_stack: VecDeque<Scope<'s>>,
+    place_scope_stack: VecDeque<Scope<'s>>,
+    default_scope: Scope<'s>,
+}
+
+impl AstVisitor for ResolvingVisitor<'_, '_> {
+}
+
+impl<'i, 's> ResolvingVisitor<'_, 's> {
+    fn new(index: &'i Index) -> Self {
+        Self {
+            annotations: AnnotationMapImpl::new(),
+            index,
+            value_scope_stack: VecDeque::new(),
+            place_scope_stack: VecDeque::new(),
+            default_scope: Scope {
+                strategy: ResolvingScope::default_scopes(),
+                explicit_qualifier: None,
+                inherited_qualifier: None,
+            },
+        }
+    }
+
+    fn push_value(&mut self, scope: Scope){
+        self.value_scope_stack.push_back(scope);
+    }
+
+    fn pop_value(&mut self) {
+        self.value_scope_stack.pop_back();
+    }
+
+    fn peek_value(&self) -> &Scope<'s> {
+        self.value_scope_stack.iter().last().unwrap_or(&self.default_scope)
+    }
+
+    fn push_place(&mut self, scope: Scope){
+        self.place_scope_stack.push_back(scope);
+    }
+
+    fn pop_place(&mut self) {
+        self.place_scope_stack.pop_back();
+    }
+
+    fn peek_place(&self) -> &Scope<'s> {
+        self.place_scope_stack.iter().last().unwrap_or(&self.default_scope)
+    }
+
+    fn get_value_scope(&self) -> &Scope<'s> {
+        self.value_scope_stack.back().unwrap_or(&self.default_scope)
+    }
+
+    fn get_place_scope(&self) -> &Scope<'s> {
+        self.value_scope_stack.back().unwrap_or(&self.default_scope)
     }
 }
