@@ -49,11 +49,19 @@ pub fn parse_file(
     id_provider: IdProvider,
     diagnostician: &mut Diagnostician,
 ) -> CompilationUnit {
+    // let _ = validate_xml(&source.source);
     let (unit, errors) = parse(&source, linkage, id_provider);
     //Register the source file with the diagnostician
     diagnostician.register_file(source.get_location_str().to_string(), source.source.to_string());
     diagnostician.handle(&errors);
     unit
+}
+
+fn validate_xml(content: &str) -> Result<(), Diagnostic> {
+    use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
+    let mut xsdparser = SchemaParserContext::from_file("model/resources/tc6_xml_v201.xsd");
+    let xsd = SchemaValidationContext::from_parser(&mut xsdparser);
+    todo!()
 }
 
 fn parse(
@@ -184,9 +192,9 @@ impl From<PouType> for AstPouType {
 
 #[cfg(test)]
 mod test {
-    use std::path::PathBuf;
+    use std::{env, path::PathBuf, str::FromStr};
 
-    use super::parse;
+    use super::{parse, Parseable};
     use crate::serializer::{with_header, XBody, XExpression, XFbd, XInVariable, XOutVariable, XPou};
     use ast::{
         ast::{CompilationUnit, LinkageType},
@@ -326,5 +334,23 @@ mod test {
         let (_, diagnostics) = parse_test(content);
         // THEN an encoding-error is reported
         assert_debug_snapshot!(diagnostics);
+    }
+
+    #[test]
+    fn valid_xml_validates() {
+        use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
+        let mut xsdparser = SchemaParserContext::from_file("src/model/resources/tc6_xml_v201.xsd");
+        let res = match SchemaValidationContext::from_parser(&mut xsdparser) {
+            Ok(mut xsd) => xsd.validate_file("../../tests/integration/data/cfc/assigning.cfc"),
+            Err(errors) => {
+                for error in errors {
+                    println!("{}", error.message.as_ref().unwrap());
+                }
+
+                panic!("xsd")
+            }
+        };
+        dbg!(&res);
+        assert!(res.is_ok())
     }
 }

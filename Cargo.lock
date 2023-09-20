@@ -1216,6 +1216,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libxml"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fe73cdec2bcb36d25a9fe3f607ffcd44bb8907ca0100c4098d1aa342d1e7bec"
+dependencies = [
+ "libc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1723,6 +1734,7 @@ dependencies = [
  "html-escape",
  "indexmap 2.0.0",
  "insta",
+ "libxml",
  "logos",
  "plc_ast",
  "plc_diagnostics",
