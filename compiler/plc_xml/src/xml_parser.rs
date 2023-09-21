@@ -57,11 +57,35 @@ pub fn parse_file(
     unit
 }
 
-fn validate_xml(content: &str) -> Result<(), Diagnostic> {
-    use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
-    let mut xsdparser = SchemaParserContext::from_file("model/resources/tc6_xml_v201.xsd");
-    let xsd = SchemaValidationContext::from_parser(&mut xsdparser);
-    todo!()
+pub fn validate_xml(xml_path: &str, schema_path: &str) -> Result<(), Diagnostic> {
+    use libxml::{
+        error::StructuredError,
+        schemas::{SchemaParserContext, SchemaValidationContext},
+    };
+    fn handle_xml_validation_errors(errors: &[StructuredError]) -> String {
+        let mut msg = String::new();
+
+        errors.iter().for_each(|err| {
+            let line = err.line.unwrap_or(0);
+            let file_name = err.filename.clone().unwrap_or(String::from("<internal>"));
+            msg.push_str(&format!("File: {file_name} | Line: {line}"));
+            if let Some(err) = &err.message {
+                msg.push_str(&format!(" {err}"))
+            }
+        });
+
+        msg
+    }
+
+    let mut xsdparser = SchemaParserContext::from_file(schema_path);
+    let mut xsd = SchemaValidationContext::from_parser(&mut xsdparser)
+        .map_err(|e| Diagnostic::invalid_validation_context(&handle_xml_validation_errors(&e)))?;
+
+    let _ = xsd
+        .validate_file(xml_path)
+        .map_err(|e| Diagnostic::invalid_xml(&handle_xml_validation_errors(&e)))?;
+
+    Ok(())
 }
 
 fn parse(
@@ -70,8 +94,10 @@ fn parse(
     id_provider: IdProvider,
 ) -> (CompilationUnit, Vec<Diagnostic>) {
     // transform the xml file to a data model.
+    let source_location_factory = SourceLocationFactory::for_source(source);
+    // Transform the xml file to a data model.
     // XXX: consecutive call-statements are nested in a single ast-statement. this will be broken up with temporary variables in the future
-    let project = match visit(&source.source) {
+    let mut project = match visit(&source.source) {
         Ok(project) => project,
         Err(xml_err) => {
             let unit = CompilationUnit::new(source.get_location_str());
@@ -83,15 +109,18 @@ fn parse(
     //     todo!("cfc errors need to be transformed into diagnostics")
     // };
 
+    let mut diagnostics = vec![];
+    let _ = project.desugar(&source_location_factory).map_err(|e| diagnostics.extend(e));
+
     // Create a new parse session
-    let source_location_factory = SourceLocationFactory::for_source(source);
     let parser =
         ParseSession::new(&project, source.get_location_str(), id_provider, linkage, source_location_factory);
 
     // Parse the declaration data field
-    let Some((unit, mut diagnostics)) = parser.try_parse_declaration() else {
+    let Some((unit, declaration_diagnostics)) = parser.try_parse_declaration() else {
         unimplemented!("XML schemas without text declarations are not yet supported")
     };
+    diagnostics.extend(declaration_diagnostics);
 
     // Transform the data-model into an AST
     let (implementations, parser_diagnostics) = parser.parse_model();
@@ -100,8 +129,8 @@ fn parse(
     (unit.with_implementations(implementations), diagnostics)
 }
 
-pub(crate) struct ParseSession<'parse> {
-    project: &'parse Project,
+pub(crate) struct ParseSession<'parse, 'xml> {
+    project: &'parse Project<'xml>,
     id_provider: IdProvider,
     linkage: LinkageType,
     file_name: &'static str,
@@ -109,9 +138,9 @@ pub(crate) struct ParseSession<'parse> {
     diagnostics: Vec<Diagnostic>,
 }
 
-impl<'parse> ParseSession<'parse> {
+impl<'parse, 'xml> ParseSession<'parse, 'xml> {
     fn new(
-        project: &'parse Project,
+        project: &'parse Project<'xml>,
         file_name: &'static str,
         id_provider: IdProvider,
         linkage: LinkageType,
@@ -194,7 +223,7 @@ impl From<PouType> for AstPouType {
 mod test {
     use std::{env, path::PathBuf, str::FromStr};
 
-    use super::{parse, Parseable};
+    use super::{parse, validate_xml, Parseable};
     use crate::serializer::{with_header, XBody, XExpression, XFbd, XInVariable, XOutVariable, XPou};
     use ast::{
         ast::{CompilationUnit, LinkageType},
@@ -203,6 +232,9 @@ mod test {
     use insta::assert_debug_snapshot;
     use plc_diagnostics::diagnostics::Diagnostic;
     use plc_source::SourceCode;
+
+    // TODO: change xml validation tests to only run in our local ci
+    const XSD_PATH: &str = "./resources/tc6_xml_v201.xsd";
 
     fn parse_test(source: impl Into<String>) -> (CompilationUnit, Vec<Diagnostic>) {
         let mut path = PathBuf::new();
@@ -338,19 +370,28 @@ mod test {
 
     #[test]
     fn valid_xml_validates() {
-        use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
-        let mut xsdparser = SchemaParserContext::from_file("src/model/resources/tc6_xml_v201.xsd");
-        let res = match SchemaValidationContext::from_parser(&mut xsdparser) {
-            Ok(mut xsd) => xsd.validate_file("../../tests/integration/data/cfc/assigning.cfc"),
-            Err(errors) => {
-                for error in errors {
-                    println!("{}", error.message.as_ref().unwrap());
-                }
+        // simple file
+        let _ = validate_xml("../../tests/integration/data/cfc/assigning.cfc", XSD_PATH)
+            .unwrap_or_else(|e| panic!("Test failed due to {e}"));
 
-                panic!("xsd")
-            }
+        // more elements and with added comments
+        let _ = validate_xml("../../tests/integration/data/cfc/chained_calls_galore.cfc", XSD_PATH)
+            .unwrap_or_else(|e| panic!("Test failed due to {e}"));
+
+        let _ = validate_xml("../../tests/integration/data/cfc/conditional_return_negated.cfc", XSD_PATH)
+            .unwrap_or_else(|e| panic!("Test failed due to {e}"));
+
+        let _ = validate_xml("../../tests/integration/data/cfc/chained_calls_galore.cfc", XSD_PATH)
+            .unwrap_or_else(|e| panic!("Test failed due to {e}"));
+    }
+
+    #[test]
+    fn invalid_xml_returns_validation_errors() {
+        // "resources/tc6_xml_v201.xsd"
+
+        // TODO: create temp test file in memory/find a way to parse the source from memory instead of from file
+        let Err(_) = validate_xml("../../tests/integration/data/cfc/assigning.cfc", XSD_PATH) else {
+            panic!("Expected diagnostics")
         };
-        dbg!(&res);
-        assert!(res.is_ok())
     }
 }
