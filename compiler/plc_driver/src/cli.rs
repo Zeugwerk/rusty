@@ -86,6 +86,9 @@ pub struct CompileParameters {
     #[clap(name = "include", long, short = 'i', help = "Include source files for external functions")]
     pub includes: Vec<String>,
 
+    #[clap(name = "xml-schema", long, help = "Path to XML schema definition, used for validation")]
+    pub xml_schema: Option<String>,
+
     #[clap(
         name = "hardware-conf",
         long,
@@ -732,5 +735,15 @@ mod cli_tests {
                 )
                 .to_string()
         )
+    }
+
+    #[test]
+    fn xml_validation_schema() {
+        let params =
+            CompileParameters::parse(vec_of_strings!("input.cfc", "--xml-schema=path/to/xsd")).unwrap();
+        assert_eq!(params.xml_schema, Some("path/to/xsd".into()));
+
+        let params = CompileParameters::parse(vec_of_strings!("input.cfc")).unwrap();
+        assert_eq!(params.xml_schema, None);
     }
 }

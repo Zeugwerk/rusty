@@ -159,6 +159,7 @@ pub fn compile<T: AsRef<str> + AsRef<OsStr> + Debug>(args: &[T]) -> Result<(), C
     let annotated_project = pipelines::ParsedProject::parse(
         &project,
         compile_parameters.encoding,
+        compile_parameters.xml_schema.clone(),
         id_provider.clone(),
         &mut diagnostician,
     )?

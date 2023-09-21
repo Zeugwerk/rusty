@@ -29,7 +29,8 @@ pub fn compile<T: Compilable>(context: &CodegenContext, source: T) -> GeneratedM
     let mut diagnostician = Diagnostician::null_diagnostician();
     let id_provider = IdProvider::default();
     let parsed_project =
-        ParsedProject::parse(&project, None, id_provider.clone(), &mut diagnostician).unwrap();
+        // TODO(mhasel): update the runner::compile function to use an xsd for our local CI
+        ParsedProject::parse(&project, None, None, id_provider.clone(), &mut diagnostician).unwrap();
     let indexed_project = parsed_project.index(id_provider.clone()).unwrap();
     let annotated_project = indexed_project.annotate(id_provider, &diagnostician).unwrap();
     let compile_options = CompileOptions {

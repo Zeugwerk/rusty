@@ -44,6 +44,7 @@ impl ParsedProject {
     pub fn parse<T: SourceContainer>(
         project: &Project<T>,
         encoding: Option<&'static Encoding>,
+        xml_schema: Option<String>,
         id_provider: IdProvider,
         diagnostician: &mut Diagnostician,
     ) -> Result<Self, Diagnostic> {
@@ -64,7 +65,12 @@ impl ParsedProject {
 
                 let parse_func = match loaded_source.get_type() {
                     source_code::SourceType::Text => parse_file,
-                    source_code::SourceType::Xml => cfc::xml_parser::parse_file,
+                    source_code::SourceType::Xml => {
+                        if let Some(xsd) = &xml_schema {
+                            cfc::xml_parser::validate_xml(loaded_source.get_location_str(), xsd)?;
+                        }
+                        cfc::xml_parser::parse_file
+                    }
                     source_code::SourceType::Unknown => unreachable!(),
                 };
                 Ok(parse_func(loaded_source, LinkageType::Internal, id_provider.clone(), diagnostician))

@@ -92,6 +92,8 @@ pub enum ErrNo {
     cfc__empty_control_statement,
     cfc__undefined_node,
     cfc__unexpected_node,
+    cfc__invalid_validation_context,
+    cfc__xml_failed_to_validate,
     cfc__unconnected_source,
     cfc__cyclic_connection,
     cfc__no_associated_connector,

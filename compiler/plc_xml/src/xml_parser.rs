@@ -381,8 +381,9 @@ mod test {
         let _ = validate_xml("../../tests/integration/data/cfc/conditional_return_negated.cfc", XSD_PATH)
             .unwrap_or_else(|e| panic!("Test failed due to {e}"));
 
-        let _ = validate_xml("../../tests/integration/data/cfc/chained_calls_galore.cfc", XSD_PATH)
-            .unwrap_or_else(|e| panic!("Test failed due to {e}"));
+        let _ =
+            validate_xml("../../tests/integration/data/cfc/connection_block_source_multi_sink.cfc", XSD_PATH)
+                .unwrap_or_else(|e| panic!("Test failed due to {e}"));
     }
 
     #[test]

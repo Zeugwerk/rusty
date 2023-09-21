@@ -745,6 +745,20 @@ impl Diagnostic {
         }
     }
 
+    pub fn invalid_validation_context(message: &str) -> Diagnostic {
+        Diagnostic::GeneralError {
+            message: format!("Failed to create validation-context for the provided XML-schema: {message}"),
+            err_no: ErrNo::cfc__invalid_validation_context,
+        }
+    }
+
+    pub fn invalid_xml(message: &str) -> Diagnostic {
+        Diagnostic::GeneralError {
+            message: format!("XML failed to validate with the provided schema: {message}"),
+            err_no: ErrNo::cfc__xml_failed_to_validate,
+        }
+    }
+
     pub fn unconnected_source(connector_name: &str, range: SourceLocation) -> Diagnostic {
         Diagnostic::SemanticError {
             message: format!("Source '{connector_name}' is not connected."),

@@ -46,7 +46,7 @@ where
         optimization: plc::OptimizationLevel::None,
         ..Default::default()
     };
-    pipelines::ParsedProject::parse(&project, None, id_provider.clone(), &mut diagnostician)?
+    pipelines::ParsedProject::parse(&project, None, None, id_provider.clone(), &mut diagnostician)?
         //Index
         .index(id_provider.clone())?
         //Resolve
