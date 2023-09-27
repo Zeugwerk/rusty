@@ -1913,19 +1913,19 @@ fn get_real_type_name_for(value: &str) -> &'static str {
     REAL_TYPE
 }
 
-pub struct Scope<'s>{
+pub struct Scope<'s> {
     strategy: Vec<ResolvingScope>,
     explicit_qualifier: Option<&'s str>,
-    inherited_qualifier: Option<&'s str>
+    inherited_qualifier: Option<&'s str>,
 }
 
-impl<'s> Scope<'s>{
-    pub fn new(strategy: Vec<ResolvingScope>, explicit_qualifier: Option<&'s str>, inherited_qualifier: Option<&'s str>) -> Self {
-        Scope {
-            strategy,
-            explicit_qualifier,
-            inherited_qualifier
-        }
+impl<'s> Scope<'s> {
+    pub fn new(
+        strategy: Vec<ResolvingScope>,
+        explicit_qualifier: Option<&'s str>,
+        inherited_qualifier: Option<&'s str>,
+    ) -> Self {
+        Scope { strategy, explicit_qualifier, inherited_qualifier }
     }
 }
 
@@ -2111,6 +2111,15 @@ pub enum VisitorEvent<'s, StmtType> {
     Exit((&'s AstNode, StmtType)),
 }
 
+impl <'s, StmtType> Into<(&'s AstNode, StmtType)> for VisitorEvent<'s, StmtType> {
+    fn into(self) -> (&'s AstNode, StmtType) {
+        match self {
+            VisitorEvent::Enter((node, stmt)) => (node, stmt),
+            VisitorEvent::Exit((node, stmt)) => (node, stmt),
+        }
+    }
+}
+
 trait AstVisitor {
     // enter methods for all ast-nodes
     fn visit_empty_statement(&mut self, _event: VisitorEvent<&EmptyStatement>) {}
@@ -2119,7 +2128,7 @@ trait AstVisitor {
     fn visit_cast_statement(&mut self, _event: VisitorEvent<&CastStatement>) {}
     fn visit_multiplied_statement(&mut self, _event: VisitorEvent<&MultipliedStatement>) {}
     fn visit_reference(&mut self, _event: VisitorEvent<&ReferenceExpr>) {}
-    fn visit_identifier(&mut self, event: VisitorEvent<&str>) {} 
+    fn visit_identifier(&mut self, event: VisitorEvent<&str>) {}
     fn visit_direct_access(&mut self, _event: VisitorEvent<&DirectAccess>) {}
     fn visit_hardware_access(&mut self, _event: VisitorEvent<&HardwareAccess>) {}
     fn visit_call_statement(&mut self, _event: VisitorEvent<&CallStatement>) {}
@@ -2137,8 +2146,6 @@ trait AstVisitor {
     fn visit_while_loop(&mut self, _event: VisitorEvent<&LoopStatement>) {}
     fn visit_repeat_loop(&mut self, _event: VisitorEvent<&LoopStatement>) {}
     fn visit_case(&mut self, _event: VisitorEvent<&CaseStatement>) {}
-
-
 }
 
 macro_rules! visit_and_drive {
@@ -2151,7 +2158,10 @@ macro_rules! visit_and_drive {
     }};
 }
 
-trait AstDriver<V> where V: AstVisitor {
+trait AstDriver<V>
+where
+    V: AstVisitor,
+{
     fn drive(&self, nde: &AstNode, visitor: &mut V) {
         self.default_drive(nde, visitor);
     }
@@ -2190,7 +2200,6 @@ trait AstDriver<V> where V: AstVisitor {
                 }
             },
             AstStatement::Identifier(stmt) => {
-                visit_and_drive!(self, visitor, identifier, std::iter::empty(), nde, stmt)
                 visit_and_drive!(self, visitor, visit_identifier, std::iter::empty(), nde, stmt)
             }
             AstStatement::DirectAccess(stmt) => {
@@ -2295,17 +2304,17 @@ trait AstDriver<V> where V: AstVisitor {
 }
 
 struct ResolvingDriver {}
-impl AstDriver<ResolvingVisitor<'_, '_>> for ResolvingDriver {
+impl AstDriver<ResolvingVisitor<'_>> for ResolvingDriver {
     fn drive(&self, nde: &AstNode, visitor: &mut ResolvingVisitor) {
         match nde.get_stmt() {
             AstStatement::CallStatement(stmt) => {
                 self.drive_call_statement(stmt, visitor);
-            },
-            AstStatement::Assignment(stmt)| AstStatement::OutputAssignment(stmt) => {
+            }
+            AstStatement::Assignment(stmt) | AstStatement::OutputAssignment(stmt) => {
                 self.drive_assignment(stmt, visitor);
             }
             AstStatement::ReferenceExpr(stmt) => {
-                self.drive_reference_expression(stmt, visitor);
+                // self.drive_reference_expression(stmt, visitor);
             }
             _ => {
                 self.default_drive(nde, visitor);
@@ -2320,62 +2329,60 @@ impl ResolvingDriver {
         self.default_drive(&stmt.operator, visitor);
         // then visit the parameters
         for param in stmt.parameters.iter() {
-            visitor.push(todo!("left and right scope"));
+            // visitor.push(todo!("left and right scope"));
             self.default_drive(param, visitor);
-            visitor.pop();
+            // visitor.pop();
         }
     }
 
     fn drive_assignment(&self, stmt: &Assignment, visitor: &mut ResolvingVisitor) {
         // visit the left side first
-        visitor.push(todo!("left, left"));
+        // visitor.push(todo!("left, left"));
         self.default_drive(&stmt.left, visitor);
 
         // then visit the right side
         // visitor.push();
         self.default_drive(&stmt.right, visitor);
-        visitor.pop();
+        // visitor.pop();
     }
+}
 
+struct ResolvingVisitor<'i> {
+    annotations: AnnotationMapImpl,
+    index: &'i Index,
+    scopes: Scopes<'i>,
+}
 
+impl AstVisitor for ResolvingVisitor<'_> {
+    fn visit_reference(&mut self, event: VisitorEvent<&ReferenceExpr>) {
+        let (node, reference) = event.into();
 
+        match reference {
+            ReferenceExpr{access: ReferenceAccess::Member(m), base: None} => {
 
-    fn drive_reference_expression(&self, stmt: &ReferenceExpr, visitor: &mut ResolvingVisitor<'_, '_>) -> _ {
-        
-        // let scope = if let Some(base) = base {
-        //     self.drive(stmt.base);
-        //     visitor.annotations.get
-        // }else{
-        //     //existing scope
-        // }
-            
+            },
+        }
     }
-
-
 
 }
 
-pub 
+impl<'i> ResolvingVisitor<'i> {
+    fn new(index: &'i Index) -> Self {
+        Self { annotations: AnnotationMapImpl::new(), index, scopes: Scopes::default() }
+    }
+}
 
-
-struct ResolvingVisitor<'i, 's> {
-    annotations: AnnotationMapImpl,
-    index: &'i Index,
-    value_scope_stack: VecDeque<Scope<'s>>,
-    place_scope_stack: VecDeque<Scope<'s>>,
+pub struct Scopes<'s> {
+    value: Vec<Scope<'s>>,
+    place: Vec<Scope<'s>>,
     default_scope: Scope<'s>,
 }
 
-impl AstVisitor for ResolvingVisitor<'_, '_> {
-}
-
-impl<'i, 's> ResolvingVisitor<'_, 's> {
-    fn new(index: &'i Index) -> Self {
+impl<'s> Default for Scopes<'s> {
+    fn default() -> Self {
         Self {
-            annotations: AnnotationMapImpl::new(),
-            index,
-            value_scope_stack: VecDeque::new(),
-            place_scope_stack: VecDeque::new(),
+            value: vec![Scope::new(ResolvingScope::default_scopes(), None, None)],
+            place: vec![Scope::new(ResolvingScope::default_scopes(), None, None)],
             default_scope: Scope {
                 strategy: ResolvingScope::default_scopes(),
                 explicit_qualifier: None,
@@ -2383,36 +2390,29 @@ impl<'i, 's> ResolvingVisitor<'_, 's> {
             },
         }
     }
+}
 
-    fn push_value(&mut self, scope: Scope){
-        self.value_scope_stack.push_back(scope);
+impl<'s> Scopes<'s> {
+    pub(crate) fn get_value_scope(&self) -> &Scope<'s> {
+        self.value.last().unwrap_or(&self.default_scope)
     }
 
-    fn pop_value(&mut self) {
-        self.value_scope_stack.pop_back();
+    pub(crate) fn get_place_scope(&self) -> &Scope<'s> {
+        self.place.last().unwrap_or(&self.default_scope)
+    }
+    pub(crate) fn open_scope(&mut self, value: Scope<'s>, place: Scope<'s>) {
+        self.value.push(value);
+        self.place.push(place);
     }
 
-    fn peek_value(&self) -> &Scope<'s> {
-        self.value_scope_stack.iter().last().unwrap_or(&self.default_scope)
+    pub(crate) fn close_scope(&mut self) {
+        self.value.pop();
+        self.place.pop();
     }
 
-    fn push_place(&mut self, scope: Scope){
-        self.place_scope_stack.push_back(scope);
-    }
-
-    fn pop_place(&mut self) {
-        self.place_scope_stack.pop_back();
-    }
-
-    fn peek_place(&self) -> &Scope<'s> {
-        self.place_scope_stack.iter().last().unwrap_or(&self.default_scope)
-    }
-
-    fn get_value_scope(&self) -> &Scope<'s> {
-        self.value_scope_stack.back().unwrap_or(&self.default_scope)
-    }
-
-    fn get_place_scope(&self) -> &Scope<'s> {
-        self.value_scope_stack.back().unwrap_or(&self.default_scope)
+    pub(crate) fn run_with_scopes(&mut self, value: Scope<'s>, place: Scope<'s>, f: impl FnOnce(&Self)) {
+        self.open_scope(value, place);
+        f(self);
+        self.close_scope();
     }
 }
