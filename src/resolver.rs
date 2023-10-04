@@ -8,6 +8,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     hash::Hash,
+    io::Empty,
     ops::Deref,
 };
 
@@ -1456,7 +1457,7 @@ impl<'i> TypeAnnotator<'i> {
             AstStatement::Identifier(name, ..) => ctx
                 .resolve_strategy
                 .iter()
-                .find_map(|scope| scope.resolve_name(name, qualifier, self.index, ctx)),
+                .find_map(|scope| scope.resolve_name(name, qualifier, ctx.pou, ctx.constant, self.index)),
 
             AstStatement::Literal(..) => {
                 self.visit_statement_literals(ctx, reference);
@@ -1913,19 +1914,29 @@ fn get_real_type_name_for(value: &str) -> &'static str {
     REAL_TYPE
 }
 
-pub struct Scope<'s> {
+pub struct Scope {
     strategy: Vec<ResolvingScope>,
     explicit_qualifier: Option<&'s str>,
     inherited_qualifier: Option<&'s str>,
 }
 
-impl<'s> Scope<'s> {
+impl<'s> Scope {
     pub fn new(
         strategy: Vec<ResolvingScope>,
         explicit_qualifier: Option<&'s str>,
         inherited_qualifier: Option<&'s str>,
     ) -> Self {
         Scope { strategy, explicit_qualifier, inherited_qualifier }
+    }
+
+    /// scopes that can be used for general references. Will resolve to local/global
+    /// variables, Pous or datatypes
+    pub fn default_scope(explicit_qualifier: Option<&'s str>) -> Self {
+        Scope::new(
+            vec![ResolvingScope::Variable, ResolvingScope::POU, ResolvingScope::DataType],
+            explicit_qualifier,
+            None,
+        )
     }
 }
 
@@ -1960,23 +1971,25 @@ impl ResolvingScope {
     fn resolve_name(
         &self,
         name: &str,
-        qualifier: Option<&str>,
+        explicit_qualifier: Option<&str>,
+        inherited_qualifier: Option<&str>,
+        is_constant: bool,
         index: &Index,
-        ctx: &VisitorContext,
+        // ctx: &VisitorContext,
     ) -> Option<StatementAnnotation> {
         match self {
             // try to resolve the name as a variable
             ResolvingScope::Variable => {
-                if let Some(qualifier) = qualifier {
+                if let Some(qualifier) = explicit_qualifier {
                     // look for variable, enum with name "qualifier.name"
                     index
                         .find_member(qualifier, name)
                         .or_else(|| index.find_qualified_enum_element(format!("{qualifier}.{name}").as_str()))
-                        .map(|it| to_variable_annotation(it, index, it.is_constant() || ctx.constant))
+                        .map(|it| to_variable_annotation(it, index, it.is_constant() || is_constant))
                 } else {
                     // look for member variable with name "pou.name"
                     // then try fopr a global variable called "name"
-                    ctx.pou
+                    inherited_qualifier
                         .and_then(|pou| index.find_member(pou, name))
                         .or_else(|| index.find_global_variable(name))
                         .map(|g| to_variable_annotation(g, index, g.is_constant()))
@@ -1984,7 +1997,7 @@ impl ResolvingScope {
             }
             // try to resolve the name as POU/Action/Method
             ResolvingScope::POU => {
-                if let Some(qualifier) = qualifier {
+                if let Some(qualifier) = explicit_qualifier {
                     // look for Pou/Action with name "qualifier.name"
                     index
                         .find_pou(format!("{qualifier}.{name}").as_str())
@@ -1993,15 +2006,15 @@ impl ResolvingScope {
                 } else {
                     // look for Pou with name "name"
                     index.find_pou(name).and_then(|pou| to_pou_annotation(pou, index)).or_else(|| {
-                        ctx.pou.and_then(|pou|
+                        inherited_qualifier.and_then(|pou|
                                 // retry with local pou as qualifier
-                                ResolvingScope::POU.resolve_name(name, Some(pou), index, ctx))
+                                ResolvingScope::POU.resolve_name(name, Some(pou), None, is_constant, index))
                     })
                 }
             }
             // try to resolve the name as a datatype
             ResolvingScope::DataType => {
-                if qualifier.is_none() {
+                if explicit_qualifier.is_none() {
                     // look for datatype with name "name"
                     index
                         .find_type(name)
@@ -2013,7 +2026,7 @@ impl ResolvingScope {
             }
             // try to resolve the name as an enum-type
             ResolvingScope::EnumTypeOnly => {
-                if qualifier.is_none() {
+                if explicit_qualifier.is_none() {
                     // look for enum-tyoe with name "name"
                     index
                         .find_type(name)
@@ -2026,7 +2039,7 @@ impl ResolvingScope {
             }
             // try to resolve this name as a function
             ResolvingScope::FunctionsOnly => {
-                if qualifier.is_none() {
+                if explicit_qualifier.is_none() {
                     // look for function with name "name"
                     index.find_pou(name).filter(|it| it.is_function()).map(|pou| pou.into())
                 } else {
@@ -2111,11 +2124,24 @@ pub enum VisitorEvent<'s, StmtType> {
     Exit((&'s AstNode, StmtType)),
 }
 
-impl <'s, StmtType> Into<(&'s AstNode, StmtType)> for VisitorEvent<'s, StmtType> {
+impl<'s, StmtType> Into<(&'s AstNode, StmtType)> for VisitorEvent<'s, StmtType> {
     fn into(self) -> (&'s AstNode, StmtType) {
         match self {
             VisitorEvent::Enter((node, stmt)) => (node, stmt),
             VisitorEvent::Exit((node, stmt)) => (node, stmt),
+        }
+    }
+}
+impl<'s, StmtType> VisitorEvent<'s, StmtType> {
+    fn get_node(&self) -> &AstNode {
+        match self {
+            VisitorEvent::Enter((node, _)) | VisitorEvent::Exit((node, _)) => node,
+        }
+    }
+
+    fn get_stmt(&self) -> &StmtType {
+        match self {
+            VisitorEvent::Enter((_, stmt)) | VisitorEvent::Exit((_, stmt)) => stmt,
         }
     }
 }
@@ -2350,20 +2376,35 @@ impl ResolvingDriver {
 struct ResolvingVisitor<'i> {
     annotations: AnnotationMapImpl,
     index: &'i Index,
-    scopes: Scopes<'i>,
+    scopes: Scopes,
 }
 
 impl AstVisitor for ResolvingVisitor<'_> {
     fn visit_reference(&mut self, event: VisitorEvent<&ReferenceExpr>) {
         let (node, reference) = event.into();
 
-        match reference {
-            ReferenceExpr{access: ReferenceAccess::Member(m), base: None} => {
+        let annotation = match reference {
+            ReferenceExpr { access: ReferenceAccess::Member(m), base: None } => {
+                if let AstStatement::Identifier(name) = m.get_stmt() {
+                    self.scopes.get_value_scopes().top().resolve_name(name, &self.index)
+                } else {
+                    unreachable!()
+                }
+            }
+            ReferenceExpr { access: ReferenceAccess::Member(m), base: Some(base) } => {
+                if let AstStatement::Identifier(name) = m.get_stmt() {
+                    self.scopes.get_value_scopes().top().resolve_name(name, &self.index)
+                } else {
+                    unreachable!()
+                }
+            }
+            _ => None,
+        };
 
-            },
+        if let Some(annotation) = annotation {
+            self.annotations.annotate(node, annotation);
         }
     }
-
 }
 
 impl<'i> ResolvingVisitor<'i> {
@@ -2372,47 +2413,101 @@ impl<'i> ResolvingVisitor<'i> {
     }
 }
 
-pub struct Scopes<'s> {
-    value: Vec<Scope<'s>>,
-    place: Vec<Scope<'s>>,
-    default_scope: Scope<'s>,
+struct Scopes {
+    // value: Vec<Box<dyn ScopedResolver>>,
+    // place: Vec<Box<dyn ScopedResolver>>,
+    // types: Vec<Box<dyn ScopedResolver>>,
+    // empty: EmptyResolver,
+    value: ScopeStack,
+    place: ScopeStack,
+    types: ScopeStack,
 }
 
-impl<'s> Default for Scopes<'s> {
+struct ScopeStack {
+    scopes: Vec<Box<dyn ScopedResolver>>,
+    empty: EmptyResolver,
+}
+
+impl Default for ScopeStack {
     fn default() -> Self {
-        Self {
-            value: vec![Scope::new(ResolvingScope::default_scopes(), None, None)],
-            place: vec![Scope::new(ResolvingScope::default_scopes(), None, None)],
-            default_scope: Scope {
-                strategy: ResolvingScope::default_scopes(),
-                explicit_qualifier: None,
-                inherited_qualifier: None,
-            },
+        Self { scopes: Default::default(), empty: EmptyResolver {} }
+    }
+}
+
+impl ScopeStack {
+    pub fn top(&self) -> &dyn ScopedResolver {
+        self.scopes.last().map(|it| it.as_ref()).unwrap_or_else(|| &self.empty)
+    }
+}
+
+impl Default for Scopes {
+    fn default() -> Self {
+        Self { value: Default::default(), place: Default::default(), types: Default::default() }
+    }
+}
+
+impl Scopes {
+    pub(crate) fn get_value_scopes(&mut self) -> &mut ScopeStack {
+        &mut self.value
+    }
+
+    pub(crate) fn get_place_scopes(&mut self) -> &mut ScopeStack {
+        &mut self.place
+    }
+
+    pub(crate) fn get_types_scopes(&mut self) -> &mut ScopeStack {
+        &mut self.types
+    }
+}
+
+trait ScopedResolver {
+    fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation>;
+}
+
+struct EmptyResolver {}
+impl ScopedResolver for EmptyResolver {
+    fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
+        None
+    }
+}
+
+struct VariableResolver<'s> {
+    qualifier: Option<&'s str>,
+}
+
+impl<'s> ScopedResolver for VariableResolver<'s> {
+    fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
+        if let Some(qualifier) = self.qualifier {
+            // look for variable, enum with name "qualifier.name"
+            index
+                .find_member(qualifier, name)
+                .or_else(|| index.find_qualified_enum_element(format!("{qualifier}.{name}").as_str()))
+                .map(|it| to_variable_annotation(it, index, false))
+        } else {
+            index.find_global_variable(name).map(|g| to_variable_annotation(g, index, false))
         }
     }
 }
 
-impl<'s> Scopes<'s> {
-    pub(crate) fn get_value_scope(&self) -> &Scope<'s> {
-        self.value.last().unwrap_or(&self.default_scope)
+struct PouResolver {}
+impl ScopedResolver for PouResolver {
+    fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
+        // look for Pou with name "name"
+        index.find_pou(name).and_then(|pou| to_pou_annotation(pou, index))
     }
+}
 
-    pub(crate) fn get_place_scope(&self) -> &Scope<'s> {
-        self.place.last().unwrap_or(&self.default_scope)
-    }
-    pub(crate) fn open_scope(&mut self, value: Scope<'s>, place: Scope<'s>) {
-        self.value.push(value);
-        self.place.push(place);
-    }
+struct ActionResolver<'s> {
+    pou_name: &'s str,
+}
 
-    pub(crate) fn close_scope(&mut self) {
-        self.value.pop();
-        self.place.pop();
-    }
-
-    pub(crate) fn run_with_scopes(&mut self, value: Scope<'s>, place: Scope<'s>, f: impl FnOnce(&Self)) {
-        self.open_scope(value, place);
-        f(self);
-        self.close_scope();
+impl<'s> ScopedResolver for ActionResolver<'s> {
+    fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
+        let qualifier = self.pou_name;
+        // look for Pou/Action with name "qualifier.name"
+        index
+            .find_pou(format!("{qualifier}.{name}").as_str())
+            .or_else(|| index.find_method(qualifier, name))
+            .map(|action| action.into())
     }
 }
