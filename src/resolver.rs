@@ -2162,7 +2162,7 @@ trait AstDriver<V>
 where
     V: AstVisitor,
 {
-    fn drive_all<'a>(&self, ndes: impl Iterator<Item=&'a AstNode>, visitor: &mut V) {
+    fn drive_all<'a>(&self, ndes: impl Iterator<Item = &'a AstNode>, visitor: &mut V) {
         for nde in ndes {
             self.drive(nde, visitor)
         }
@@ -2311,7 +2311,7 @@ where
 
 #[derive(Default)]
 struct ResolvingDriver {}
-impl<'i, 's> AstDriver<ResolvingVisitor<'i, 's>> for ResolvingDriver {
+impl<'i, 's> AstDriver<ResolvingVisitor<'i>> for ResolvingDriver {
     fn drive(&self, nde: &AstNode, visitor: &mut ResolvingVisitor) {
         match nde.get_stmt() {
             AstStatement::CallStatement(stmt) => {
@@ -2351,13 +2351,13 @@ impl ResolvingDriver {
     }
 }
 
-struct ResolvingVisitor<'i, 's> {
+struct ResolvingVisitor<'i> {
     annotations: AnnotationMapImpl,
     index: &'i Index,
-    scopes: Scopes<'s>,
+    scopes: Scopes,
 }
 
-impl <'i, 's> AstVisitor for ResolvingVisitor<'i, 's> {
+impl<'i, 's> AstVisitor for ResolvingVisitor<'i> {
     fn visit_reference(&mut self, event: VisitorEvent<&ReferenceExpr>) {
         let (node, reference) = event.into();
 
@@ -2379,49 +2379,44 @@ impl <'i, 's> AstVisitor for ResolvingVisitor<'i, 's> {
     }
 }
 
-impl ResolvingVisitor<'_, '_> {
-    fn new<'i, 's>(index: &'i Index, pou_name: Option<&'s str>) -> ResolvingVisitor<'i, 's> {
-
-        let mut scopes: Scopes<'s> = Scopes{
-            place: ScopeStack { scopes: vec![], empty: EmptyResolver {  } },
-            value: ScopeStack { scopes: vec![], empty: EmptyResolver {  } },
-            types: ScopeStack { scopes: vec![], empty: EmptyResolver {  } },
+impl ResolvingVisitor<'_> {
+    fn new<'i, 's>(index: &'i Index, pou_name: Option<&'s str>) -> ResolvingVisitor<'i> {
+        let mut scopes: Scopes = Scopes {
+            place: ScopeStack { scopes: vec![], empty: EmptyResolver {} },
+            value: ScopeStack { scopes: vec![], empty: EmptyResolver {} },
+            types: ScopeStack { scopes: vec![], empty: EmptyResolver {} },
         };
-        scopes.get_value_scopes().push(Box::new(
-            ComposedResolver::new(vec![
-                Box::new(VariableResolver::new(pou_name)),  //local variables
-                Box::new(VariableResolver::new(None))       //global variables
-            ])));
-        let visitor = ResolvingVisitor { annotations: AnnotationMapImpl::new(), index, scopes}; 
-
-        //init the value scope
-        visitor
+        scopes.get_value_scopes().push(Box::new(ComposedResolver::new(vec![
+            Box::new(VariableResolver::new(pou_name.map(|n| n.to_string()))), //local variables
+            Box::new(VariableResolver::new(None)),                            //global variables
+        ])));
+        ResolvingVisitor { annotations: AnnotationMapImpl::new(), index, scopes }
     }
 }
 
-struct Scopes<'s> {
-    value: ScopeStack<'s>,
-    place: ScopeStack<'s>,
-    types: ScopeStack<'s>,
+struct Scopes {
+    value: ScopeStack,
+    place: ScopeStack,
+    types: ScopeStack,
 }
 
-struct ScopeStack<'s> {
-    scopes: Vec<Box<dyn ScopedResolver<'s>>>,
+struct ScopeStack {
+    scopes: Vec<Box<dyn ScopedResolver>>,
     empty: EmptyResolver,
 }
 
-impl <'s> Default for ScopeStack<'s> {
+impl<'s> Default for ScopeStack {
     fn default() -> Self {
         Self { scopes: Default::default(), empty: EmptyResolver {} }
     }
 }
 
-impl <'s> ScopeStack<'s> {
-    pub fn top(&self) -> &dyn ScopedResolver<'s> {
+impl<'s> ScopeStack {
+    pub fn top(&self) -> &dyn ScopedResolver {
         self.scopes.last().map(|it| it.as_ref()).unwrap_or_else(|| &self.empty)
     }
 
-    pub fn push(&mut self, resolver: Box<dyn ScopedResolver<'s>>)  {
+    pub fn push(&mut self, resolver: Box<dyn ScopedResolver>) {
         self.scopes.push(resolver)
     }
 
@@ -2430,50 +2425,50 @@ impl <'s> ScopeStack<'s> {
     }
 }
 
-impl <'s> Default for Scopes<'s> {
-    fn default() -> Scopes<'s> {
+impl<'s> Default for Scopes {
+    fn default() -> Scopes {
         Self { value: Default::default(), place: Default::default(), types: Default::default() }
     }
 }
 
-impl<'s> Scopes<'s> {
-    pub(crate) fn get_value_scopes(&mut self) -> &mut ScopeStack<'s> {
+impl<'s> Scopes {
+    pub(crate) fn get_value_scopes(&mut self) -> &mut ScopeStack {
         &mut self.value
     }
 
-    pub(crate) fn get_place_scopes(&mut self) -> &mut ScopeStack<'s> {
+    pub(crate) fn get_place_scopes(&mut self) -> &mut ScopeStack {
         &mut self.place
     }
 
-    pub(crate) fn get_types_scopes(&mut self) -> &mut ScopeStack<'s> {
+    pub(crate) fn get_types_scopes(&mut self) -> &mut ScopeStack {
         &mut self.types
     }
 }
 
-trait ScopedResolver<'s> {
+trait ScopedResolver {
     fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation>;
 }
 
 struct EmptyResolver {}
-impl <'s> ScopedResolver<'s> for EmptyResolver {
+impl<'s> ScopedResolver for EmptyResolver {
     fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
         None
     }
 }
 
-struct VariableResolver<'s> {
-    qualifier: Option<&'s str>,
+struct VariableResolver {
+    qualifier: Option<String>,
 }
 
-impl<'s> VariableResolver<'s> {
-    fn new(qualifier: Option<&'s str>) -> VariableResolver<'s>{
-        Self{ qualifier}
+impl<'s> VariableResolver {
+    fn new(qualifier: Option<String>) -> VariableResolver {
+        Self { qualifier }
     }
 }
 
-impl<'s> ScopedResolver<'s> for VariableResolver<'s> {
+impl<'s> ScopedResolver for VariableResolver {
     fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
-        if let Some(qualifier) = self.qualifier {
+        if let Some(qualifier) = self.qualifier.as_ref() {
             // look for variable, enum with name "qualifier.name"
             index
                 .find_member(qualifier, name)
@@ -2486,7 +2481,7 @@ impl<'s> ScopedResolver<'s> for VariableResolver<'s> {
 }
 
 struct PouResolver {}
-impl ScopedResolver<'_> for PouResolver {
+impl ScopedResolver for PouResolver {
     fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
         // look for Pou with name "name"
         index.find_pou(name).and_then(|pou| to_pou_annotation(pou, index))
@@ -2497,7 +2492,7 @@ struct ActionResolver<'s> {
     pou_name: &'s str,
 }
 
-impl<'s> ScopedResolver<'s> for ActionResolver<'s> {
+impl<'s> ScopedResolver for ActionResolver<'s> {
     fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
         let qualifier = self.pou_name;
         // look for Pou/Action with name "qualifier.name"
@@ -2508,17 +2503,17 @@ impl<'s> ScopedResolver<'s> for ActionResolver<'s> {
     }
 }
 
-struct ComposedResolver<'s> {
-    resolvers: Vec<Box<dyn ScopedResolver<'s>>>,
+struct ComposedResolver {
+    resolvers: Vec<Box<dyn ScopedResolver>>,
 }
 
-impl <'s> ComposedResolver<'s> {
-    fn new(resolvers: Vec<Box<dyn ScopedResolver<'s>>>) -> Self {
-            ComposedResolver { resolvers }
+impl<'s> ComposedResolver {
+    fn new(resolvers: Vec<Box<dyn ScopedResolver>>) -> Self {
+        ComposedResolver { resolvers }
     }
 }
 
-impl <'s> ScopedResolver<'s> for ComposedResolver<'s> {
+impl<'s> ScopedResolver for ComposedResolver {
     fn resolve_name(&self, name: &str, index: &Index) -> Option<StatementAnnotation> {
         self.resolvers.iter().find_map(|r| r.resolve_name(name, index))
     }
@@ -2553,7 +2548,7 @@ mod ast_visitor_tests {
 
         // name-resolving
         let statements = &unit.implementations[0].statements;
-        let mut visitor = ResolvingVisitor::new(&index, &unit.units[0].name);
+        let mut visitor = ResolvingVisitor::new(&index, Some(&unit.units[0].name));
         ResolvingDriver::default().drive_all(statements.iter(), &mut visitor);
 
         assert_eq!(
@@ -2580,7 +2575,7 @@ mod ast_visitor_tests {
 
         assert_eq!(
             Some(&StatementAnnotation::Variable {
-                argument_type: crate::index::ArgumentType::ByVal(VariableType::Global),
+                argument_type: crate::index::ArgumentType::ByVal(VariableType::Local),
                 constant: false,
                 is_auto_deref: false,
                 qualified_name: "prg.z".into(),
