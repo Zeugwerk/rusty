@@ -260,6 +260,8 @@ fn generate(
             let result: i32 = module.run_no_param(&pou);
             if result == 0 {
                 eprintln!("Assertion of test {pou} failed.")
+            } else {
+                eprintln!("Test {pou} OK.")
             }
         }
         return Ok(());
