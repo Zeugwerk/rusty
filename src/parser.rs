@@ -67,6 +67,11 @@ pub fn parse(mut lexer: ParseSession, lnk: LinkageType, file_name: &str) -> Pars
                 //Don't reset linkage
                 continue;
             }
+            PropertyTest => {
+                linkage = LinkageType::Test;
+                lexer.advance();
+                continue;
+            }
             KeywordVarGlobal => unit.global_vars.push(parse_variable_block(&mut lexer, linkage)),
             KeywordProgram | KeywordClass | KeywordFunction | KeywordFunctionBlock => {
                 let params = match lexer.token {

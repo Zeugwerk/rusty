@@ -560,6 +560,7 @@ pub fn compile_with_native<T: Compilable>(context: &CodegenContext, source: T) -
         ("TIME_TO_STRING_EXT", iec61131std::extra_functions::TIME_TO_STRING_EXT as usize),
         ("DATE_TO_STRING_EXT", iec61131std::extra_functions::DATE_TO_STRING_EXT as usize),
         ("TOD_TO_STRING_EXT", iec61131std::extra_functions::TOD_TO_STRING_EXT as usize),
+        ("ASSERT_EQ", iec61131std::assertion::ASSERT_EQ as usize),
     ];
 
     let variables = vec![

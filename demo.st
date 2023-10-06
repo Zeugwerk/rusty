@@ -1,0 +1,4 @@
+FUNCTION myTest : DINT
+    ASSERT_EQ(1, 2);
+    ASSERT_EQ(1, 1);
+END_FUNCTION

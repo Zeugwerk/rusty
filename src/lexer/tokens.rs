@@ -22,6 +22,10 @@ pub enum Token {
     #[token("{sized}")]
     PropertySized,
 
+    #[token("@TEST")]
+    #[token("{test}")]
+    PropertyTest,
+
     #[token("PROGRAM", ignore(case))]
     KeywordProgram,
 

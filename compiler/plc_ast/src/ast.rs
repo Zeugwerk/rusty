@@ -214,6 +214,7 @@ pub enum LinkageType {
     Internal,
     External,
     BuiltIn,
+    Test,
 }
 
 #[derive(Debug, PartialEq, Eq)]

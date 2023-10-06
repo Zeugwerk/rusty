@@ -161,6 +161,9 @@ pub struct CompileParameters {
     #[clap(name = "check", long, help = "Check only, do not generate any output", global = true)]
     pub check_only: bool,
 
+    #[clap(name = "test", long, help = "Run all POUs with the test-pragma", global = true)]
+    pub run_tests: bool,
+
     #[clap(subcommand)]
     pub commands: Option<SubCommands>,
 }
@@ -287,6 +290,10 @@ impl CompileParameters {
     /// If set, no files will be generated
     pub fn is_check(&self) -> bool {
         self.check_only || matches!(self.commands, Some(SubCommands::Check { .. }))
+    }
+
+    pub fn is_test(&self) -> bool {
+        self.run_tests
     }
 
     /// return the selected output format, or the default if none.

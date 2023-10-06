@@ -160,7 +160,7 @@ pub fn compile<T: AsRef<str> + AsRef<OsStr> + Debug>(args: &[T]) -> Result<(), C
     }
 
     // 1 : Parse
-    let annotated_project = pipelines::ParsedProject::parse(
+    let mut annotated_project = pipelines::ParsedProject::parse(
         &project,
         compile_parameters.encoding,
         id_provider.clone(),
@@ -247,12 +247,30 @@ fn generate(
         error_format: compile_parameters.error_format,
         debug_level: compile_parameters.debug_level(),
     };
+
+    let mut annotated_project = annotated_project;
+    let annotated_tests = if compile_parameters.is_test() {
+        // split into test pous and other pous
+        // compile normally, then compile and run tests
+        Some(annotated_project.extract_tests())
+    } else {
+        None
+    };
+
     let res = if compile_parameters.single_module {
         log::info!("Using single module mode");
         annotated_project.codegen_single_module(compile_options, &compile_parameters.target)?
     } else {
         annotated_project.codegen(compile_options, &compile_parameters.target)?
     };
+
+    /* run tests here? */
+    if let Some(tests) = annotated_tests {
+        let context = CodegenContext::create();
+        let modules = tests.generate_single_module(&context, &compile_options)?;
+        modules.iter().for_each(|it| it.run_no_param("main"));
+    };
+
     let libraries =
         project.get_libraries().iter().map(LibraryInformation::get_link_name).map(str::to_string).collect();
     let library_pathes = project

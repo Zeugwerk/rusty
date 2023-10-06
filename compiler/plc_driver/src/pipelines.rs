@@ -218,6 +218,47 @@ impl AnnotatedProject {
         }
     }
 
+    pub fn extract_tests(&mut self) -> AnnotatedProject {
+        /*
+           go through all units
+
+           check if any pou in unit contains tests
+        */
+        let test_units = self
+            .units
+            .iter_mut()
+            .map(|(unit, dependencies, literals)| {
+                let (implementations, units): (Vec<ast::ast::Implementation>, Vec<ast::ast::Pou>) = unit
+                    .units
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, it)| it.linkage == LinkageType::Test)
+                    .map(|(idx, it)| (unit.implementations.remove(idx), unit.units.remove(idx)))
+                    .collect::<Vec<(_, _)>>()
+                    .into_iter()
+                    .unzip();
+
+                (
+                    CompilationUnit {
+                        global_vars: unit.global_vars,
+                        units,
+                        implementations,
+                        user_types: unit.user_types,
+                        file_name: unit.file_name,
+                    },
+                    dependencies.clone(),
+                    literals.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        AnnotatedProject {
+            units: test_units,
+            index: self.index.clone(),
+            annotations: self.annotations.clone(),
+        }
+    }
+
     pub fn codegen_to_string(&self, compile_options: &CompileOptions) -> Result<Vec<String>, Diagnostic> {
         self.units
             .iter()
