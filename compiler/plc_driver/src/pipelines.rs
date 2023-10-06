@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     fs::{self, File},
     io::Write,
@@ -135,7 +136,6 @@ impl ParsedProject {
         // import builtin functions
         let builtins = plc::builtins::parse_built_ins(id_provider);
         global_index.import(plc::index::visitor::visit(&builtins));
-
         Ok(IndexedProject { units, index: global_index })
     }
 }
@@ -191,6 +191,63 @@ pub struct AnnotatedProject {
     pub annotations: AstAnnotations,
 }
 
+pub struct AnnotatedTests<'proj> {
+    pub units: Vec<(CompilationUnit, IndexSet<Dependency>, StringLiterals)>,
+    pub index: &'proj Index,
+    pub annotations: &'proj AstAnnotations,
+}
+
+impl<'proj> AnnotatedTests<'proj> {
+    pub fn generate_single_module<'ctx>(
+        &self,
+        context: &'ctx CodegenContext,
+        compile_options: &CompileOptions,
+    ) -> Result<Option<GeneratedModule<'ctx>>, Diagnostic> {
+        let Some(module) = self
+            .units
+            .iter()
+            .map(|(unit, dependencies, literals)| {
+                self.generate_module(context, compile_options, unit, dependencies, literals)
+            })
+            .reduce(|a, b| {
+                let a = a?;
+                let b = b?;
+                a.merge(b)
+            })
+        else {
+            return Ok(None);
+        };
+        module.map(Some)
+    }
+
+    fn generate_module<'ctx>(
+        &self,
+        context: &'ctx CodegenContext,
+        compile_options: &CompileOptions,
+        unit: &CompilationUnit,
+        dependencies: &IndexSet<Dependency>,
+        literals: &StringLiterals,
+    ) -> Result<GeneratedModule<'ctx>, Diagnostic> {
+        let mut code_generator = plc::codegen::CodeGen::new(
+            context,
+            compile_options.root.as_deref(),
+            &unit.file_name,
+            compile_options.optimization,
+            compile_options.debug_level,
+        );
+        //Create a types codegen, this contains all the type declarations
+        //Associate the index type with LLVM types
+        let llvm_index = code_generator.generate_llvm_index(
+            context,
+            &self.annotations,
+            literals,
+            dependencies,
+            &self.index,
+        )?;
+        code_generator.generate(context, unit, &self.annotations, &self.index, &llvm_index)
+    }
+}
+
 impl AnnotatedProject {
     /// Validates the project, reports any new diagnostics on the fly
     pub fn validate(&self, diagnostician: &mut Diagnostician) -> Result<(), Diagnostic> {
@@ -218,45 +275,75 @@ impl AnnotatedProject {
         }
     }
 
-    pub fn extract_tests(&mut self) -> AnnotatedProject {
+    // pub fn extract_tests<'proj>(&mut self) -> Option<AnnotatedTests<'proj>> {
+    //     /*
+    //        go through all units
+
+    //        check if any pou in unit contains tests
+    //     */
+    //     let test_units = self
+    //         .units
+    //         .iter_mut()
+    //         .map(|(unit, dependencies, literals)| {
+    //             let (implementations, units): (Vec<ast::ast::Implementation>, Vec<ast::ast::Pou>) = unit
+    //                 .units
+    //                 .iter()
+    //                 .enumerate()
+    //                 .filter(|(_, it)| it.linkage == LinkageType::Test)
+    //                 .map(|(idx, _)| (unit.implementations.remove(idx), unit.units.remove(idx)))
+    //                 .collect::<Vec<(_, _)>>()
+    //                 .into_iter()
+    //                 .unzip();
+
+    //             (
+    //                 CompilationUnit {
+    //                     global_vars: unit.global_vars,
+    //                     units,
+    //                     implementations,
+    //                     user_types: unit.user_types,
+    //                     file_name: unit.file_name,
+    //                 },
+    //                 dependencies.clone(),
+    //                 literals.clone(),
+    //             )
+    //         })
+    //         .collect::<Vec<_>>();
+
+    //     Some(AnnotatedTests { units: test_units, index: &self.index, annotations: &self.annotations })
+    // }
+
+    pub fn extract_tests<'proj>(&mut self) -> Vec<String> {
         /*
            go through all units
 
            check if any pou in unit contains tests
         */
+        // (unit.implementations.remove(idx), unit.units.remove(idx))
         let test_units = self
             .units
-            .iter_mut()
-            .map(|(unit, dependencies, literals)| {
-                let (implementations, units): (Vec<ast::ast::Implementation>, Vec<ast::ast::Pou>) = unit
-                    .units
-                    .iter()
-                    .enumerate()
-                    .filter(|(idx, it)| it.linkage == LinkageType::Test)
-                    .map(|(idx, it)| (unit.implementations.remove(idx), unit.units.remove(idx)))
-                    .collect::<Vec<(_, _)>>()
-                    .into_iter()
-                    .unzip();
-
+            .iter()
+            .enumerate()
+            .map(|(unit_idx, (unit, _, _))| {
                 (
-                    CompilationUnit {
-                        global_vars: unit.global_vars,
-                        units,
-                        implementations,
-                        user_types: unit.user_types,
-                        file_name: unit.file_name,
-                    },
-                    dependencies.clone(),
-                    literals.clone(),
+                    unit_idx,
+                    unit.units
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, it)| it.linkage == LinkageType::Test)
+                        .map(|(pou_idx, pou)| (pou_idx, pou.name.to_owned()))
+                        .collect::<Vec<(_, _)>>(),
                 )
             })
-            .collect::<Vec<_>>();
+            .collect::<HashMap<usize, Vec<(usize, String)>>>(); /* idx probably only needed if we want to remove tests from generated objects if we arent running them */
 
-        AnnotatedProject {
-            units: test_units,
-            index: self.index.clone(),
-            annotations: self.annotations.clone(),
+        // dirty hack
+        let mut pous = vec![];
+        for (_, v) in test_units {
+            let (_, b): (Vec<usize>, Vec<String>) = v.into_iter().unzip();
+            pous.extend(b);
         }
+
+        pous
     }
 
     pub fn codegen_to_string(&self, compile_options: &CompileOptions) -> Result<Vec<String>, Diagnostic> {
@@ -321,7 +408,7 @@ impl AnnotatedProject {
 
     pub fn codegen_single_module<'ctx>(
         &'ctx self,
-        compile_options: CompileOptions,
+        compile_options: &CompileOptions,
         targets: &'ctx [Target],
     ) -> Result<Vec<GeneratedProject>, Diagnostic> {
         let compile_directory = compile_options.build_location.clone().unwrap_or_else(|| {
@@ -352,7 +439,7 @@ impl AnnotatedProject {
 
     pub fn codegen<'ctx>(
         &'ctx self,
-        compile_options: CompileOptions,
+        compile_options: &CompileOptions,
         targets: &'ctx [Target],
     ) -> Result<Vec<GeneratedProject>, Diagnostic> {
         let compile_directory = compile_options.build_location.clone().unwrap_or_else(|| {

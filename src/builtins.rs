@@ -4,6 +4,7 @@ use inkwell::{
     basic_block::BasicBlock,
     types::BasicType,
     values::{BasicValue, IntValue},
+    IntPredicate,
 };
 use lazy_static::lazy_static;
 use plc_ast::{
@@ -213,6 +214,35 @@ lazy_static! {
                         } else {
                             Ok(ExpressionValue::RValue(sel))
                         }
+                    } else {
+                        Err(Diagnostic::codegen_error("Invalid signature for SEL", location))
+                    }
+
+                }
+            }
+        ),
+        (
+            "ASSERT_EQ",
+            BuiltIn {
+                decl: "FUNCTION ASSERT_EQ : DINT
+                VAR_INPUT
+                    a : DINT;
+                    b : DINT;
+                END_VAR
+                END_FUNCTION
+                ",
+                annotation: None,
+                validation: None,
+                generic_name_resolver: no_generic_name_resolver,
+                code: |generator, params, location| {
+                    if let &[a, b] = params {
+                        // evaluate the parameters
+                        let in0 =
+                            generator.generate_expression(a)?;
+                        let in1 =
+                            generator.generate_expression(b)?;
+                        let res = generator.llvm.builder.build_int_compare(IntPredicate::EQ, in0.into_int_value(), in1.into_int_value(), "").as_basic_value_enum();
+                        Ok(ExpressionValue::RValue(res))
                     } else {
                         Err(Diagnostic::codegen_error("Invalid signature for SEL", location))
                     }

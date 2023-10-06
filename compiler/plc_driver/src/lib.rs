@@ -160,7 +160,7 @@ pub fn compile<T: AsRef<str> + AsRef<OsStr> + Debug>(args: &[T]) -> Result<(), C
     }
 
     // 1 : Parse
-    let mut annotated_project = pipelines::ParsedProject::parse(
+    let annotated_project = pipelines::ParsedProject::parse(
         &project,
         compile_parameters.encoding,
         id_provider.clone(),
@@ -247,28 +247,29 @@ fn generate(
         error_format: compile_parameters.error_format,
         debug_level: compile_parameters.debug_level(),
     };
-
     let mut annotated_project = annotated_project;
-    let annotated_tests = if compile_parameters.is_test() {
+    if compile_parameters.is_test() {
         // split into test pous and other pous
         // compile normally, then compile and run tests
-        Some(annotated_project.extract_tests())
-    } else {
-        None
-    };
+        let pous = annotated_project.extract_tests();
+        /* run tests here? */
+        let context = CodegenContext::create();
+        let module = annotated_project.generate_single_module(&context, &compile_options)?.unwrap();
+        // TODO: link libraries for test runner
+        for pou in pous {
+            let result: i32 = module.run_no_param(&pou);
+            if result == 0 {
+                eprintln!("Assertion of test {pou} failed.")
+            }
+        }
+        return Ok(());
+    }
 
     let res = if compile_parameters.single_module {
         log::info!("Using single module mode");
-        annotated_project.codegen_single_module(compile_options, &compile_parameters.target)?
+        annotated_project.codegen_single_module(&compile_options, &compile_parameters.target)?
     } else {
-        annotated_project.codegen(compile_options, &compile_parameters.target)?
-    };
-
-    /* run tests here? */
-    if let Some(tests) = annotated_tests {
-        let context = CodegenContext::create();
-        let modules = tests.generate_single_module(&context, &compile_options)?;
-        modules.iter().for_each(|it| it.run_no_param("main"));
+        annotated_project.codegen(&compile_options, &compile_parameters.target)?
     };
 
     let libraries =

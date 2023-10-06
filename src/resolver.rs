@@ -614,7 +614,7 @@ impl AnnotationMap for AnnotationMapImpl {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct StringLiterals {
     pub utf08: HashSet<String>,
     pub utf16: HashSet<String>,
