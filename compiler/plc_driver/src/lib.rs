@@ -199,7 +199,7 @@ pub fn compile<T: AsRef<str> + AsRef<OsStr> + Debug>(args: &[T]) -> Result<()> {
         .map_err(|err| Diagnostic::codegen_error(err.get_message(), err.get_location()));
         if let Err(res) = res {
             diagnostician.handle(&[res]);
-            return Err(Diagnostic::error("Compilation aborted due to previous errors")
+            return Err(Diagnostic::new("Compilation aborted due to previous errors")
                 .with_error_code("E071")
                 .into());
         }
@@ -267,7 +267,7 @@ fn generate_to_string_internal<T: SourceContainer>(
     }
     let module = project.generate_single_module(&context, &options)?;
 
-    module.map(|it| it.persist_to_string()).ok_or_else(|| Diagnostic::error("Cannot generate module"))
+    module.map(|it| it.persist_to_string()).ok_or_else(|| Diagnostic::new("Cannot generate module"))
 }
 
 fn generate(
@@ -358,7 +358,7 @@ fn get_project(compile_parameters: &CompileParameters) -> Result<Project<PathBuf
                 }
             })
             .or_else(|| get_config(&current_dir))
-            .ok_or_else(|| Diagnostic::error("Could not find 'plc.json'").with_error_code("E003"))?;
+            .ok_or_else(|| Diagnostic::new("Could not find 'plc.json'").with_error_code("E003"))?;
         Project::from_config(&config)
     } else {
         //Build with parameters
