@@ -44,6 +44,7 @@ pub struct Pou {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[derive(Serialize)]
 pub enum PolymorphismMode {
     None,
     Abstract,
@@ -71,6 +72,7 @@ pub enum DirectAccessType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Serialize)]
 pub enum TypeNature {
     Any,
     Derived,
@@ -220,6 +222,7 @@ impl Pou {
 }
 
 #[derive(Debug, PartialEq)]
+#[derive(Serialize)]
 pub struct Implementation {
     pub name: String,
     pub type_name: String,
@@ -234,6 +237,7 @@ pub struct Implementation {
 }
 
 #[derive(Debug, Copy, PartialEq, Eq, Clone, Hash)]
+#[derive(Serialize)]
 pub enum LinkageType {
     Internal,
     External,
@@ -241,6 +245,7 @@ pub enum LinkageType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[derive(Serialize)]
 pub enum AccessModifier {
     Private,
     Public,
@@ -249,6 +254,7 @@ pub enum AccessModifier {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Serialize)]
 pub enum PouType {
     Program,
     Function,
@@ -283,6 +289,7 @@ impl PouType {
 }
 
 #[derive(Debug, PartialEq)]
+#[derive(Serialize)]
 pub struct CompilationUnit {
     pub global_vars: Vec<VariableBlock>,
     pub units: Vec<Pou>,
@@ -322,6 +329,7 @@ impl CompilationUnit {
 }
 
 #[derive(Debug, Copy, PartialEq, Eq, Clone)]
+#[derive(Serialize)]
 pub enum VariableBlockType {
     Local,
     Temp,
@@ -345,12 +353,14 @@ impl Display for VariableBlockType {
 }
 
 #[derive(Debug, Copy, PartialEq, Eq, Clone)]
+#[derive(Serialize)]
 pub enum ArgumentProperty {
     ByVal,
     ByRef,
 }
 
 #[derive(PartialEq)]
+#[derive(Serialize)]
 pub struct VariableBlock {
     pub access: AccessModifier,
     pub constant: bool,
@@ -371,6 +381,7 @@ impl Debug for VariableBlock {
 }
 
 #[derive(Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct Variable {
     pub name: String,
     pub data_type_declaration: DataTypeDeclaration,
@@ -404,6 +415,7 @@ impl Variable {
 }
 
 #[derive(Clone, PartialEq)]
+#[derive(Serialize)]
 pub enum DataTypeDeclaration {
     DataTypeReference { referenced_type: String, location: SourceLocation },
     DataTypeDefinition { data_type: DataType, location: SourceLocation, scope: Option<String> },
@@ -444,6 +456,7 @@ impl DataTypeDeclaration {
 }
 
 #[derive(PartialEq)]
+#[derive(Serialize)]
 pub struct UserTypeDeclaration {
     pub data_type: DataType,
     pub initializer: Option<AstNode>,
@@ -463,6 +476,7 @@ impl Debug for UserTypeDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub enum DataType {
     StructType {
         name: Option<String>, //maybe None for inline structs
@@ -563,6 +577,7 @@ fn replace_reference(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub enum ReferenceAccess {
     /**
      * a, a.b
@@ -587,13 +602,14 @@ pub enum ReferenceAccess {
 }
 
 #[derive(Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct AstNode {
     pub stmt: AstStatement,
     pub id: AstId,
     pub location: SourceLocation,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum AstStatement {
     EmptyStatement(EmptyStatement),
     // a placeholder that indicates a default value of a datatype
@@ -958,6 +974,7 @@ impl AstNode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize)]
 pub enum Operator {
     Plus,
     Minus,
@@ -1090,6 +1107,7 @@ mod tests {
     }
 }
 
+#[derive(Serialize)]
 pub struct AstFactory {}
 
 impl AstFactory {
@@ -1521,35 +1539,42 @@ impl AstFactory {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct EmptyStatement {}
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct DefaultValue {}
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct CastStatement {
     pub target: Box<AstNode>,
     pub type_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct MultipliedStatement {
     pub multiplier: u32,
     pub element: Box<AstNode>,
 }
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct ReferenceExpr {
     pub access: ReferenceAccess,
     pub base: Option<Box<AstNode>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct DirectAccess {
     pub access: DirectAccessType,
     pub index: Box<AstNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct HardwareAccess {
     pub direction: HardwareAccessType,
     pub access: DirectAccessType,
@@ -1557,6 +1582,7 @@ pub struct HardwareAccess {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct BinaryExpression {
     pub operator: Operator,
     pub left: Box<AstNode>,
@@ -1564,24 +1590,28 @@ pub struct BinaryExpression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct UnaryExpression {
     pub operator: Operator,
     pub value: Box<AstNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct RangeStatement {
     pub start: Box<AstNode>,
     pub end: Box<AstNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct Assignment {
     pub left: Box<AstNode>,
     pub right: Box<AstNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct CallStatement {
     pub operator: Box<AstNode>,
     pub parameters: Option<Box<AstNode>>,
@@ -1589,6 +1619,7 @@ pub struct CallStatement {
 
 /// Represents a conditional jump from current location to a specified label
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct JumpStatement {
     /// The condition based on which the current statement will perform a jump
     pub condition: Box<AstNode>,
@@ -1598,6 +1629,7 @@ pub struct JumpStatement {
 
 /// Represents a location in code that could be jumbed to
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct LabelStatement {
     pub name: String,
 }

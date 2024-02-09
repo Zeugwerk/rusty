@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 use chrono::NaiveDate;
+use serde::Serialize;
 
 use crate::ast::AstNode;
 
@@ -15,6 +16,7 @@ macro_rules! impl_getters {
 }
 
 #[derive(Clone, PartialEq)]
+#[derive(Serialize)]
 pub enum AstLiteral {
     /// a null literal used to initialize pointers
     Null,
@@ -39,6 +41,7 @@ pub enum AstLiteral {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct Date {
     year: i32,
     month: u32,
@@ -46,6 +49,7 @@ pub struct Date {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct DateAndTime {
     year: i32,
     month: u32,
@@ -57,6 +61,7 @@ pub struct DateAndTime {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct TimeOfDay {
     hour: u32,
     min: u32,
@@ -65,6 +70,7 @@ pub struct TimeOfDay {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct Time {
     pub day: f64,
     pub hour: f64,
@@ -77,12 +83,14 @@ pub struct Time {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct StringValue {
     pub value: String,
     pub is_wide: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize)]
 pub struct Array {
     pub elements: Option<Box<AstNode>>, // expression-list
 }

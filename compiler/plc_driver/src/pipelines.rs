@@ -30,11 +30,13 @@ use project::{
     project::{LibraryInformation, Project},
 };
 use rayon::prelude::*;
+use serde::Serialize;
 use source_code::{source_location::SourceLocation, SourceContainer};
 
 ///Represents a parsed project
 ///For this struct to be built, the project would have been parsed correctly and an AST would have
 ///been generated
+#[derive(Serialize)]
 pub struct ParsedProject(Vec<CompilationUnit>);
 
 impl ParsedProject {
