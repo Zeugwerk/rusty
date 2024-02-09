@@ -54,7 +54,12 @@ impl DiagnosticAssessor for DiagnosticsRegistry {
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct DiagnosticsConfiguration(HashMap<Severity, Vec<String>>);
+
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 lazy_static! {
     static ref DIAGNOSTICS: HashMap<&'static str, DiagnosticEntry> = add_diagnostic!(
     E001,
@@ -328,4 +333,30 @@ lazy_static! {
     Warning,
     include_str!("./error_codes/E090.md"), //Incompatible reference Assignment
 );
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::diagnostics::diagnostics_registry::DiagnosticsConfiguration;
+
+    #[test]
+    fn deserialize_empty_json() {
+        let error_config = "{}";
+
+        let DiagnosticsConfiguration(configuration) = serde_json::de::from_str(error_config).unwrap();
+        assert!(configuration.is_empty());
+    }
+
+    #[test]
+    fn deserialize_json() {
+        let error_config = r#"{
+            "error": ["E001", "E002"],
+            "warning": ["E003", "E004"],
+            "info": ["E005"],
+            "ignore": ["E010"]
+        }"#;
+
+        let DiagnosticsConfiguration(configuration) = serde_json::de::from_str(error_config).unwrap();
+        assert_eq!(configuration.len(), 4);
+    }
 }
